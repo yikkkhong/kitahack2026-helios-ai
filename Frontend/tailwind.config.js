@@ -1,6 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  // 重点在这里：增加了 ts 和 tsx 后缀
+
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",

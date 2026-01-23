@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"; // React 不需要显式 import React in newer versions
+import { useState, useEffect } from "react"; // React no need show import React in newer versions
 import { Sun, ArrowRight, ShieldCheck, Zap, Cpu, Menu, X } from "lucide-react";
 //import HomePage from "./pages/HomePage";
 import { useNavigate } from "react-router-dom";
@@ -88,7 +88,7 @@ export default function HomePage() {
               <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
             </button>
             <button className="bg-transparent border border-white/20 text-white px-8 py-3 rounded-full font-medium hover:bg-white/10 transition-all duration-300">
-              View Specs
+              Community Programs{/* View Specs */}
             </button>
           </div>
         </div>
@@ -176,7 +176,7 @@ export default function HomePage() {
       {/* --- Footer --- */}
       <footer className="bg-black border-t border-white/10 py-12 px-6">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center text-gray-500 text-sm">
-          <p>© 2026 Helios AI.</p>
+          <p>© 2026 KitaHack2026 - Group: Bohemian Hacker</p>
           <div className="flex gap-6 mt-4 md:mt-0">
             <a href="#" className="hover:text-white">
               Privacy

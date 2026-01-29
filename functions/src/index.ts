@@ -48,3 +48,6 @@ export const createSolarProject = onCall(async (request) => {
     throw new HttpsError('internal', 'Failed to save project to database');
   }
 });
+
+// Export Gemini AI analysis function
+export { analyzeWithGemini } from "./gemini";

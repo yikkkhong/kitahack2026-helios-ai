@@ -16,17 +16,47 @@ import {
   ArrowRight,
   Settings2,
   X,
+  MessageSquare,
+  Sparkles,
+  TrendingUp, // 新增图标
+  DollarSign, // 新增图标
 } from "lucide-react";
 
 import { functions } from "../firebase";
 import { httpsCallable } from "firebase/functions";
 import { useNavigate } from "react-router-dom";
 
+// --- [CRITICAL UPDATE] 匹配新版 Backend 的数据结构 ---
+interface AIReport {
+  debug_logic?: {
+    detected_type: string;
+    final_decision_reason: string;
+  };
+  ui_display: {
+    suitability: string;
+    installation_method: string;
+    reasons: string[];
+  };
+  // 新版后端的财务报告字段
+  financial_report: {
+    estimated_install_cost: number;
+    yearly_savings_rm: number;
+    roi_years: number;
+    breakeven_year: number;
+  };
+  // 新版后端的配置字段
+  technical_config: {
+    panel_count: number;
+    placement: string; // "rooftop" | "balcony" | "window" ...
+    system_size_kw: number;
+  };
+  next_steps: string[];
+}
+
 // --- Configuration ---
 const CONFIG = {
   GOOGLE_MAPS_API_KEY:
-    import.meta.env.VITE_GOOGLE_MAPS_API_KEY ||
-    "AIzaSyBqdYJ84VFITPzIoMaxUV6BFeTePCYruBM",
+    import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "YOUR_API_KEY",
   DEFAULT_CENTER: { lat: 3.140853, lng: 101.693207 }, // KL
   SOLAR_API_URL: "https://solar.googleapis.com/v1/buildingInsights:findClosest",
 };
@@ -36,7 +66,7 @@ const LIBRARIES: ("places" | "geometry" | "drawing" | "visualization")[] = [
 ];
 
 const CustomizationPage = () => {
-  const [bill, setBill] = useState<number>(200);
+  const [bill, setBill] = useState<number>(300); // 调高一点默认值符合市场
   const [budget, setBudget] = useState<number>(15000);
   const [loading, setLoading] = useState(false);
   const [solarData, setSolarData] = useState<any>(null);
@@ -45,8 +75,12 @@ const CustomizationPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [address, setAddress] = useState<string>("");
 
-  // --- Added: Control the display of the report pop-up window ---
   const [showReport, setShowReport] = useState<boolean>(false);
+
+  // --- User Inputs & AI State ---
+  const [specialRequirements, setSpecialRequirements] = useState<string>("");
+  const [aiLoading, setAiLoading] = useState<boolean>(false);
+  const [aiReportData, setAiReportData] = useState<AIReport | null>(null);
 
   // Load Google Maps Script
   const { isLoaded } = useJsApiLoader({
@@ -70,26 +104,20 @@ const CustomizationPage = () => {
     autocompleteRef.current = autocomplete;
   };
 
-  // --- Upgraded Logic: Process Data (Extracts more advanced data) ---
+  // --- Solar Data Processing ---
   const processSolarData = (data: any) => {
     const potential = data.solarPotential;
     if (!potential)
       throw new Error("No solar potential data found for this roof.");
 
-    // 1. Get panel maximum capacity
     const maxPanels = potential.maxArrayPanelsCount;
-    // 2. Annual sunshine duration
     const sunshineHours = potential.maxSunshineHoursPerYear || 1800;
-    // 3. Total usable roof area (square meters)
     const roofArea = potential.maxArrayAreaMeters2;
-    // 4. Annual power generation (kWh), calculated based on approximately 150 kWh produced per square meter of panel.
-    const maxKwhYear = roofArea * 150;
-    // 5. The money saved each year (assuming Malaysian electricity cost is RM0.5/kWh)
-    const moneySavedYear = maxKwhYear * 0.5;
-    // 6. Carbon neutrality (equivalent to how many trees to plant)
+    const maxKwhYear = roofArea * 150; // Rough estimation
+    const moneySavedYear = maxKwhYear * 0.50; // TNB Tariff estimation
     const carbonOffset = potential.carbonOffsetFactorKgPerMwh
       ? (maxKwhYear / 1000) * potential.carbonOffsetFactorKgPerMwh
-      : maxKwhYear * 0.4; // If the API is not provided, use the Malaysian average coefficient of 0.4 kg/kWh for estimation.
+      : maxKwhYear * 0.4;
 
     setSolarData({
       panels: maxPanels,
@@ -106,6 +134,7 @@ const CustomizationPage = () => {
     setLoading(true);
     setError(null);
     setSolarData(null);
+    setAiReportData(null);
 
     try {
       const url = `${CONFIG.SOLAR_API_URL}?location.latitude=${lat}&location.longitude=${lng}&requiredQuality=BASE&experiments=EXPANDED_COVERAGE&key=${CONFIG.GOOGLE_MAPS_API_KEY}`;
@@ -163,36 +192,82 @@ const CustomizationPage = () => {
     navigate("/simulation");
   }
 
+  // --- [Updated] Generate AI Report ---
+  const generateAIReport = async () => {
+    if (!solarData || !selectedLocation) return;
+
+    setAiLoading(true);
+    try {
+      const analyzeWithGemini = httpsCallable(functions, "analyzeWithGemini");
+      const result: any = await analyzeWithGemini({
+        solarData: solarData,
+        userInputs: {
+          bill: bill,
+          budget: budget,
+          specialRequirements: specialRequirements,
+        },
+        location: {
+          address: address,
+        },
+      });
+
+      console.log("AI Result:", result.data); // Debug output
+
+      if (result.data.success) {
+        setAiReportData(result.data.analysis);
+        setShowReport(true);
+      }
+    } catch (error) {
+      console.error("AI Generation Error:", error);
+      alert("AI is busy. Please try again in a few seconds.");
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   const handleSaveProject = async () => {
     setLoading(true);
     try {
+      // --- [CRITICAL MAPPER] ---
+      // 将 AI 的新数据格式转换为 3D 页面(Step 2)能读懂的旧格式
+      const step2Config = {
+        panel_count: aiReportData?.technical_config.panel_count || 10,
+        placement_type: aiReportData?.technical_config.placement || "rooftop",
+        tilt_angle: 20, // Default optimal angle
+        estimated_efficiency_loss_percent: 0
+      };
+
       const createProjectApi = httpsCallable(functions, "createSolarProject");
       await createProjectApi({
         location: selectedLocation,
         bill: bill,
         budget: budget,
+        specialRequirements: specialRequirements,
         analysis: solarData,
+        aiConfig: step2Config, 
       });
 
       localStorage.setItem("step2_lat", selectedLocation!.lat.toString());
       localStorage.setItem("step2_lng", selectedLocation!.lng.toString());
+      localStorage.setItem(
+        "step2_config",
+        JSON.stringify(step2Config),
+      );
 
       alert("Project saved! Navigating to 3D View...");
-      // navigate('/step2');
+      goToVirtualRoom();
     } catch (error) {
       console.error(error);
       alert("Failed to save project.");
     } finally {
       setLoading(false);
     }
-
-    goToVirtualRoom();
   };
 
   if (!isLoaded)
     return (
       <div className="h-screen bg-black flex items-center justify-center text-white">
-        Loading Maps...
+        <Loader2 className="animate-spin mr-2" /> Loading Helios Maps...
       </div>
     );
 
@@ -221,7 +296,7 @@ const CustomizationPage = () => {
               placeholder="Search or click map..."
               value={address}
               onChange={(e) => setAddress(e.target.value)}
-              className="w-full bg-zinc-800 text-white border border-gray-600 rounded-lg p-3 outline-none focus:border-blue-500"
+              className="w-full bg-zinc-800 text-white border border-gray-600 rounded-lg p-3 outline-none focus:border-blue-500 transition-all"
             />
           </Autocomplete>
         </div>
@@ -259,25 +334,45 @@ const CustomizationPage = () => {
           />
         </div>
 
+        {/* Special Requirements */}
+        <div className="mb-6">
+          <label className="text-sm text-gray-300 font-medium flex gap-1 items-center mb-2">
+            <MessageSquare size={16} className="text-purple-400" /> 
+            <span className="bg-purple-900/30 text-purple-200 text-xs px-2 py-0.5 rounded ml-1">AI Context</span>
+            <span className="ml-auto text-xs text-gray-500">Optional</span>
+          </label>
+          <textarea
+            value={specialRequirements}
+            onChange={(e) => setSpecialRequirements(e.target.value)}
+            placeholder="Tell AI: 'I live in a condo with no balcony' or 'I am renting'..."
+            className="w-full bg-zinc-800 text-white border border-gray-600 rounded-lg p-3 outline-none focus:border-purple-500 min-h-[100px] text-sm transition-all"
+          />
+        </div>
+
         {error && (
-          <div className="p-4 bg-red-900/20 text-red-200 text-sm mb-4 rounded">
+          <div className="p-4 bg-red-900/20 text-red-200 text-sm mb-4 rounded border border-red-500/20">
             {error}
           </div>
         )}
 
-        {/* --- [Change] Once the data is retrieved, it will no longer be displayed directly; instead, a "Generate Report" button will be shown. --- */}
         <div className="mt-auto pt-6">
           <button
-            onClick={() => setShowReport(true)}
-            disabled={loading || !solarData}
-            className="w-full py-4 bg-blue-600 text-white font-bold rounded-lg shadow-lg hover:bg-blue-500 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:bg-gray-700"
+            onClick={generateAIReport}
+            disabled={loading || aiLoading || !solarData}
+            className="w-full py-4 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-bold rounded-lg shadow-lg hover:from-blue-500 hover:to-blue-600 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:grayscale"
           >
-            {loading ? <Loader2 className="animate-spin" /> : <Zap size={18} />}
+            {loading || aiLoading ? (
+              <Loader2 className="animate-spin" />
+            ) : (
+              <Sparkles size={18} className="fill-white/20" />
+            )}
             {loading
-              ? "Analyzing Roof..."
-              : solarData
-                ? "Generate AI Report"
-                : "Select Location First"}
+              ? "Scanning Roof..."
+              : aiLoading
+                ? "AI Analyzing Constraints..."
+                : solarData
+                  ? "Generate AI Strategy"
+                  : "Select Location First"}
           </button>
         </div>
       </div>
@@ -303,102 +398,140 @@ const CustomizationPage = () => {
       </div>
 
       {/* ================================================================= */}
-      {/* ---[New Feature] Pop-up Layer: Beautiful Analysis Report Modal--- */}
+      {/* --- AI REPORT MODAL (UPDATED FOR NEW DATA STRUCTURE) --- */}
       {/* ================================================================= */}
-      {showReport && solarData && (
+      {showReport && solarData && aiReportData && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-300">
-          <div className="bg-zinc-900 border border-white/10 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl">
-            {/* Pop-up header */}
-            <div className="p-6 border-b border-white/10 flex justify-between items-center bg-zinc-800/50">
-              <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                <CloudSun className="text-blue-400" /> Your Solar Potential
-                Report
-              </h2>
+          <div className="bg-zinc-900 border border-white/10 rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-2xl relative">
+            
+            {/* Header */}
+            <div className="p-6 border-b border-white/10 flex justify-between items-center bg-zinc-900/95 sticky top-0 z-20 backdrop-blur-sm">
+              <div>
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  <Sparkles className="text-purple-400" /> Helios AI Analysis
+                </h2>
+                <p className="text-xs text-gray-400 mt-1">
+                  Powered by Gemini 1.5 • <span className="text-green-400">Constraint-Aware Engine</span>
+                </p>
+              </div>
               <button
                 onClick={() => setShowReport(false)}
-                className="text-gray-400 hover:text-white"
+                className="text-gray-400 hover:text-white bg-white/5 p-2 rounded-full transition-colors"
               >
-                <X size={24} />
+                <X size={20} />
               </button>
             </div>
 
-            {/* report main data*/}
-            <div className="p-6 grid grid-cols-2 md:grid-cols-3 gap-4">
-              <div className="bg-black/50 p-4 rounded-xl border border-white/5 text-center">
-                <Sun className="mx-auto text-yellow-500 mb-2" size={24} />
-                <div className="text-gray-400 text-xs">Annual Sunshine</div>
-                <div className="text-xl font-bold text-white">
-                  {solarData.sunshineHours}{" "}
-                  <span className="text-sm text-gray-500">hrs</span>
-                </div>
+            {/* AI Reasoning Section */}
+            <div className="p-6 border-b border-white/5 bg-gradient-to-b from-purple-900/10 to-zinc-900/30">
+              
+              {/* Suitability Badge */}
+              <div className="flex flex-wrap gap-4 mb-6">
+                 <div className="flex items-center gap-2">
+                    <span className="text-gray-400 text-sm font-medium">Status:</span>
+                    <span className={`px-3 py-1 text-sm font-bold rounded-full border ${
+                        aiReportData.ui_display.suitability.includes("Suitable") 
+                        ? "bg-green-500/20 text-green-400 border-green-500/30"
+                        : "bg-blue-500/20 text-blue-400 border-blue-500/30"
+                    }`}>
+                      {aiReportData.ui_display.suitability}
+                    </span>
+                 </div>
+                 <div className="flex items-center gap-2">
+                    <span className="text-gray-400 text-sm font-medium">Method:</span>
+                    <span className="px-3 py-1 text-sm font-bold rounded-full border bg-white/10 text-white border-white/20">
+                      {aiReportData.ui_display.installation_method}
+                    </span>
+                 </div>
               </div>
 
-              <div className="bg-black/50 p-4 rounded-xl border border-white/5 text-center">
-                <Zap className="mx-auto text-blue-400 mb-2" size={24} />
-                <div className="text-gray-400 text-xs">Yearly Output</div>
-                <div className="text-xl font-bold text-white">
-                  {solarData.yearlyOutput}{" "}
-                  <span className="text-sm text-gray-500">kWh</span>
+              {/* Reasoning List */}
+              <div className="bg-black/40 rounded-xl p-5 border border-white/5">
+                <div className="text-purple-300 font-medium mb-3 flex items-center gap-2 text-sm">
+                  <MessageSquare size={14} /> Why this solution?
                 </div>
-              </div>
-
-              <div className="bg-black/50 p-4 rounded-xl border border-white/5 text-center">
-                <Leaf className="mx-auto text-green-500 mb-2" size={24} />
-                <div className="text-gray-400 text-xs">Carbon Offset</div>
-                <div className="text-xl font-bold text-white">
-                  {solarData.carbon}{" "}
-                  <span className="text-sm text-gray-500">kg CO₂</span>
-                </div>
-              </div>
-
-              <div className="bg-black/50 p-4 rounded-xl border border-white/5 text-center">
-                <div className="text-gray-400 text-xs mb-1">
-                  Usable Roof Area
-                </div>
-                <div className="text-lg font-bold text-white">
-                  {solarData.area} m²
-                </div>
-              </div>
-
-              <div className="bg-black/50 p-4 rounded-xl border border-white/5 text-center">
-                <div className="text-gray-400 text-xs mb-1">
-                  Max Panels Capacity
-                </div>
-                <div className="text-lg font-bold text-white">
-                  {solarData.panels} Panels
-                </div>
-              </div>
-
-              <div className="bg-blue-900/30 p-4 rounded-xl border border-blue-500/30 text-center">
-                <div className="text-blue-200 text-xs mb-1">
-                  Est. Yearly Savings
-                </div>
-                <div className="text-xl font-bold text-green-400">
-                  RM {solarData.yearlySavings}
-                </div>
+                <ul className="space-y-3">
+                  {aiReportData.ui_display.reasons.map((reason, idx) => (
+                    <li key={idx} className="flex gap-3 items-start text-gray-300 text-sm">
+                      <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-purple-500 flex-shrink-0" />
+                      <span className="leading-relaxed">{reason}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             </div>
 
-            {/* bottom button control */}
-            <div className="p-6 bg-black/50 flex gap-4">
+            {/* Financial & Technical Grid (Updated Mapping) */}
+            <div className="p-6 bg-zinc-900">
+               <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-4">Projected Metrics</h3>
+               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  
+                  {/* Card 1: Panel Count */}
+                  <div className="bg-zinc-800/50 p-4 rounded-xl border border-white/5">
+                    <div className="text-gray-500 text-xs mb-1">Recommended System</div>
+                    <div className="text-xl font-bold text-white">
+                      {aiReportData.technical_config.panel_count} <span className="text-sm font-normal text-gray-500">Panels</span>
+                    </div>
+                    <div className="text-xs text-blue-400 mt-1 capitalize">
+                      {aiReportData.technical_config.placement.replace("_", " ")} Mount
+                    </div>
+                  </div>
+
+                  {/* Card 2: Savings */}
+                  <div className="bg-zinc-800/50 p-4 rounded-xl border border-white/5">
+                    <div className="text-gray-500 text-xs mb-1">Est. Yearly Savings</div>
+                    <div className="text-xl font-bold text-green-400">
+                      RM {aiReportData.financial_report.yearly_savings_rm.toLocaleString()}
+                    </div>
+                    <div className="text-xs text-green-600/70 mt-1 flex items-center gap-1">
+                      <TrendingUp size={12} /> ROI: {aiReportData.financial_report.roi_years} Years
+                    </div>
+                  </div>
+
+                  {/* Card 3: Install Cost */}
+                  <div className="bg-zinc-800/50 p-4 rounded-xl border border-white/5">
+                    <div className="text-gray-500 text-xs mb-1">Est. Install Cost</div>
+                    <div className="text-xl font-bold text-white">
+                      RM {aiReportData.financial_report.estimated_install_cost.toLocaleString()}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Market Avg.
+                    </div>
+                  </div>
+
+                   {/* Card 4: Carbon */}
+                   <div className="bg-zinc-800/50 p-4 rounded-xl border border-white/5">
+                    <div className="text-gray-500 text-xs mb-1">Carbon Offset</div>
+                    <div className="text-xl font-bold text-white">
+                      {solarData.carbon} <span className="text-sm font-normal text-gray-500">kg</span>
+                    </div>
+                    <div className="text-xs text-green-500/70 mt-1 flex items-center gap-1">
+                      <Leaf size={12} /> Eco-friendly
+                    </div>
+                  </div>
+               </div>
+            </div>
+
+            {/* Bottom Controls */}
+            <div className="p-6 bg-zinc-900 border-t border-white/10 flex gap-4 sticky bottom-0 z-20">
               <button
                 onClick={() => setShowReport(false)}
-                className="flex-1 py-3 bg-zinc-700 text-white font-medium rounded-lg hover:bg-zinc-600 transition flex items-center justify-center gap-2"
+                className="flex-1 py-3 bg-zinc-800 text-white font-medium rounded-lg hover:bg-zinc-700 transition flex items-center justify-center gap-2 border border-white/5"
               >
-                <Settings2 size={18} /> Re-adjust Inputs
+                <Settings2 size={18} /> Modify Inputs
               </button>
 
               <button
                 onClick={handleSaveProject}
                 disabled={loading}
-                className="flex-[2] py-3 bg-white text-black font-bold rounded-lg hover:bg-gray-200 transition flex items-center justify-center gap-2"
+                className="flex-[2] py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 transition flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20"
               >
                 {loading ? (
                   <Loader2 className="animate-spin" />
                 ) : (
                   <ArrowRight size={18} />
                 )}
-                {loading ? "Saving to Cloud..." : "Confirm & View in 3D"}
+                {loading ? "Creating Project..." : "Visualize in 3D"}
               </button>
             </div>
           </div>

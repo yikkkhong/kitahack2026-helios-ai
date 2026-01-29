@@ -10,25 +10,11 @@ npm run dev
 (at main folder) npm run build --prefix functions
 firebase emulators:start
 
-# DEVELOPED WITH
+## If updated anything for AI
 
-## Frontend
+firebase deploy --only functions
 
-React
-Vite
-Tailwindcss
 
-## Backend
-
-Firebase
-
-## Other Frameworks
-
-Unity
-
-## AI used
-
-Gemini AI
 
 ## API used
 

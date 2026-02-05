@@ -2,10 +2,13 @@ import { initializeApp } from "firebase/app";
 import { getFirestore, connectFirestoreEmulator } from "firebase/firestore"; // Introducing connectors
 import { getFunctions, connectFunctionsEmulator } from "firebase/functions"; // Introducing connectors
 
+const apiKey = import.meta.env.VITE_FIREBASE_API_KEY;
+console.log("🔥 Firebase Key Loaded:", apiKey ? "YES" : "NO");
+
 // The web app's Firebase configuration
 // To find it: Firebase Console -> Project Settings -> General -> Your apps
 const firebaseConfig = {
-  apiKey: "AIzaSyB_P4PyrLuvN-MQPBZb472c_fEATGXe_sI",
+  apiKey: apiKey,
   authDomain: "kitahack2026-helios-ai.firebaseapp.com",
   projectId: "kitahack2026-helios-ai",
   storageBucket: "kitahack2026-helios-ai.firebasestorage.app",
@@ -29,4 +32,7 @@ if (window.location.hostname === "localhost") {
 
   // Connect to the backend function simulator (default port 5001)
   connectFunctionsEmulator(functions, "localhost", 5001);
+
+  connectFunctionsEmulator(functions, "127.0.0.1", 5001);
+
 }

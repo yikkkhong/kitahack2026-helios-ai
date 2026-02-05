@@ -7,57 +7,58 @@ import {
 } from "@react-google-maps/api";
 import {
   CloudSun,
-  Save,
   Loader2,
   MapPin,
-  Zap,
-  Sun,
   Leaf,
   ArrowRight,
   Settings2,
   X,
   MessageSquare,
   Sparkles,
-  TrendingUp, // 新增图标
-  DollarSign, // 新增图标
+  TrendingUp,
 } from "lucide-react";
 
 import { functions } from "../firebase";
 import { httpsCallable } from "firebase/functions";
 import { useNavigate } from "react-router-dom";
 
-// --- [CRITICAL UPDATE] 匹配新版 Backend 的数据结构 ---
+// --- Types Definition ---
+// 为了防止红线，我们在使用时会强制转为 any，但保留定义作为参考
 interface AIReport {
-  debug_logic?: {
-    detected_type: string;
-    final_decision_reason: string;
+  success?: boolean;
+  analysis: {
+    internal_thought_process?: string;
+    ui_display?: {
+      suitability: string;
+      installation_method: string;
+      reasons: string[];
+    };
+    financial_report?: {
+      estimated_install_cost: number;
+      yearly_savings_rm: number;
+      roi_years: number;
+      breakeven_year: number;
+    };
+    technical_config: {
+      panel_count: number;
+      placement: string;
+      system_size_kw: number;
+      grid_layout?: {
+        rows: number;
+        columns: number;
+      };
+      orientation?: "PORTRAIT" | "LANDSCAPE";
+      panel_color?: "BLACK" | "BLUE";
+    };
+    next_steps?: string[];
   };
-  ui_display: {
-    suitability: string;
-    installation_method: string;
-    reasons: string[];
-  };
-  // 新版后端的财务报告字段
-  financial_report: {
-    estimated_install_cost: number;
-    yearly_savings_rm: number;
-    roi_years: number;
-    breakeven_year: number;
-  };
-  // 新版后端的配置字段
-  technical_config: {
-    panel_count: number;
-    placement: string; // "rooftop" | "balcony" | "window" ...
-    system_size_kw: number;
-  };
-  next_steps: string[];
 }
 
 // --- Configuration ---
 const CONFIG = {
   GOOGLE_MAPS_API_KEY:
     import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "YOUR_API_KEY",
-  DEFAULT_CENTER: { lat: 3.140853, lng: 101.693207 }, // KL
+  DEFAULT_CENTER: { lat: 1.3521, lng: 103.8198 },
   SOLAR_API_URL: "https://solar.googleapis.com/v1/buildingInsights:findClosest",
 };
 
@@ -66,10 +67,13 @@ const LIBRARIES: ("places" | "geometry" | "drawing" | "visualization")[] = [
 ];
 
 const CustomizationPage = () => {
-  const [bill, setBill] = useState<number>(300); // 调高一点默认值符合市场
+  const [bill, setBill] = useState<number>(300);
   const [budget, setBudget] = useState<number>(15000);
   const [loading, setLoading] = useState(false);
+
+  // solarData 存储 API 返回的原始数据
   const [solarData, setSolarData] = useState<any>(null);
+
   const [selectedLocation, setSelectedLocation] =
     useState<google.maps.LatLngLiteral | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +84,9 @@ const CustomizationPage = () => {
   // --- User Inputs & AI State ---
   const [specialRequirements, setSpecialRequirements] = useState<string>("");
   const [aiLoading, setAiLoading] = useState<boolean>(false);
-  const [aiReportData, setAiReportData] = useState<AIReport | null>(null);
+
+  // 🔄 State: 存储 AI 报告
+  const [aiReport, setAiReport] = useState<AIReport | null>(null);
 
   // Load Google Maps Script
   const { isLoaded } = useJsApiLoader({
@@ -104,55 +110,81 @@ const CustomizationPage = () => {
     autocompleteRef.current = autocomplete;
   };
 
+  // --- Mock Data Generator ---
+  const generateMockSolarData = () => {
+    console.warn("⚠️ API Unavailable. Switching to Mock Data Mode.");
+    return {
+      panels: 24,
+      sunshineHours: 1650,
+      area: 65,
+      yearlyOutput: 14200,
+      yearlySavings: 7100, // RM
+      carbon: 5400,
+      isMock: true,
+    };
+  };
+
   // --- Solar Data Processing ---
   const processSolarData = (data: any) => {
     const potential = data.solarPotential;
-    if (!potential)
-      throw new Error("No solar potential data found for this roof.");
+    if (!potential) throw new Error("No solar potential data found.");
 
     const maxPanels = potential.maxArrayPanelsCount;
     const sunshineHours = potential.maxSunshineHoursPerYear || 1800;
     const roofArea = potential.maxArrayAreaMeters2;
-    const maxKwhYear = roofArea * 150; // Rough estimation
-    const moneySavedYear = maxKwhYear * 0.50; // TNB Tariff estimation
+    const maxKwhYear = roofArea * 150;
+    const moneySavedYear = maxKwhYear * 0.50;
     const carbonOffset = potential.carbonOffsetFactorKgPerMwh
       ? (maxKwhYear / 1000) * potential.carbonOffsetFactorKgPerMwh
       : maxKwhYear * 0.4;
 
-    setSolarData({
+    return {
       panels: maxPanels,
       sunshineHours: Math.round(sunshineHours),
       area: Math.round(roofArea),
       yearlyOutput: Math.round(maxKwhYear),
       yearlySavings: Math.round(moneySavedYear),
       carbon: Math.round(carbonOffset),
-    });
+      isMock: false,
+      // 🔄 必须把原始数据透传出去，Step 2 才能拿到真实高度！
+      solarPotential: potential, 
+    };
   };
 
+  // --- Fetch Solar Data ---
   const fetchSolarData = async (lat: number, lng: number) => {
     setSelectedLocation({ lat, lng });
     setLoading(true);
     setError(null);
     setSolarData(null);
-    setAiReportData(null);
+    setAiReport(null);
 
     try {
-      const url = `${CONFIG.SOLAR_API_URL}?location.latitude=${lat}&location.longitude=${lng}&requiredQuality=BASE&experiments=EXPANDED_COVERAGE&key=${CONFIG.GOOGLE_MAPS_API_KEY}`;
-      const response = await fetch(url);
+      console.log("📡 尝试 1: 获取标准高清数据...");
+      let url = `${CONFIG.SOLAR_API_URL}?location.latitude=${lat}&location.longitude=${lng}&requiredQuality=HIGH&key=${CONFIG.GOOGLE_MAPS_API_KEY}`;
+
+      let response = await fetch(url);
+
+      if (response.status === 404) {
+        console.warn("⚠️ 标准数据未找到，尝试切换到普通/实验模式...");
+        url = `${CONFIG.SOLAR_API_URL}?location.latitude=${lat}&location.longitude=${lng}&requiredQuality=BASE&experiments=EXPANDED_COVERAGE&key=${CONFIG.GOOGLE_MAPS_API_KEY}`;
+        response = await fetch(url);
+      }
 
       if (!response.ok) {
-        if (response.status === 404)
-          throw new Error(
-            "No roof detected here. Try clicking the center of a building.",
-          );
-        throw new Error("API Error");
+        console.warn("❌ API 两次请求都失败，使用 Mock 数据。");
+        setSolarData(generateMockSolarData());
+        return;
       }
 
       const data = await response.json();
-      processSolarData(data);
+      console.log("✅ 成功获取 Solar 数据:", data);
+
+      const processed = processSolarData(data);
+      setSolarData(processed);
     } catch (err: any) {
-      console.error(err);
-      setError(err.message || "Failed to analyze roof.");
+      console.error("🔥 系统错误:", err);
+      setSolarData(generateMockSolarData());
     } finally {
       setLoading(false);
     }
@@ -181,6 +213,7 @@ const CustomizationPage = () => {
     geocoder.geocode({ location: { lat, lng } }, (results, status) => {
       if (status === "OK" && results && results[0])
         setAddress(results[0].formatted_address);
+      else setAddress(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
     });
 
     fetchSolarData(lat, lng);
@@ -188,17 +221,15 @@ const CustomizationPage = () => {
 
   const navigate = useNavigate();
 
-  function goToVirtualRoom() {
-    navigate("/simulation");
-  }
-
-  // --- [Updated] Generate AI Report ---
+  // --- Generate AI Report ---
   const generateAIReport = async () => {
     if (!solarData || !selectedLocation) return;
 
     setAiLoading(true);
     try {
       const analyzeWithGemini = httpsCallable(functions, "analyzeWithGemini");
+
+      // 传递给 AI 的数据
       const result: any = await analyzeWithGemini({
         solarData: solarData,
         userInputs: {
@@ -211,15 +242,16 @@ const CustomizationPage = () => {
         },
       });
 
-      console.log("AI Result:", result.data); // Debug output
+      console.log("AI Result:", result.data);
 
       if (result.data.success) {
-        setAiReportData(result.data.analysis);
+        // 将整个结果存入 aiReport
+        setAiReport(result.data);
         setShowReport(true);
       }
     } catch (error) {
       console.error("AI Generation Error:", error);
-      alert("AI is busy. Please try again in a few seconds.");
+      alert("AI Service is temporarily overloaded.");
     } finally {
       setAiLoading(false);
     }
@@ -228,41 +260,67 @@ const CustomizationPage = () => {
   const handleSaveProject = async () => {
     setLoading(true);
     try {
-      // --- [CRITICAL MAPPER] ---
-      // 将 AI 的新数据格式转换为 3D 页面(Step 2)能读懂的旧格式
-      const step2Config = {
-        panel_count: aiReportData?.technical_config.panel_count || 10,
-        placement_type: aiReportData?.technical_config.placement || "rooftop",
-        tilt_angle: 20, // Default optimal angle
-        estimated_efficiency_loss_percent: 0
+      console.log("💾 正在保存项目...");
+
+      // 🔍 使用 any 绕过类型检查，确保能取到值
+      const report: any = aiReport || {};
+      const currentAnalysis = report.analysis || {};
+      const techConfig = currentAnalysis.technical_config || {};
+
+      // 🔥 核心逻辑：从 Google Solar API 数据中提取真实高度
+      let bestHeight = 30; // 默认值 (如果 API 没数据)
+
+      if (solarData && !solarData.isMock && solarData.solarPotential?.roofSegmentStats) {
+        const segments = solarData.solarPotential.roofSegmentStats;
+        if (segments.length > 0) {
+            // 按面积排序，找最大的片段
+            segments.sort((a: any, b: any) => (b.stats?.areaMeters2 || 0) - (a.stats?.areaMeters2 || 0));
+            const mainRoof = segments[0];
+            
+            // 获取 Google 测量的海拔高度
+            if (mainRoof.planeHeightAtCenterMeters) {
+                bestHeight = mainRoof.planeHeightAtCenterMeters;
+                console.log("🎯 Google Solar API 提供的精准高度:", bestHeight);
+            }
+        }
+      }
+
+      // 准备蓝图 (The Blueprint)
+      const blueprint = {
+        technical: {
+          panel_count: techConfig.panel_count || 20,
+          grid_layout: techConfig.grid_layout || { rows: 4, columns: 5 },
+          orientation: techConfig.orientation || "PORTRAIT",
+          azimuth: 180,
+          tilt: 20,
+          roof_height: bestHeight // ✅ 存入真实高度
+        },
+        visual: {
+          panel_color: techConfig.panel_color || "BLACK",
+          mounting_type: "ROOF_FLUSH",
+        },
+        financial: currentAnalysis.financial_report || {},
       };
 
-      const createProjectApi = httpsCallable(functions, "createSolarProject");
-      await createProjectApi({
-        location: selectedLocation,
-        bill: bill,
-        budget: budget,
-        specialRequirements: specialRequirements,
-        analysis: solarData,
-        aiConfig: step2Config, 
-      });
+      // 存入 LocalStorage
+      localStorage.setItem("step2_solar_blueprint", JSON.stringify(blueprint));
 
-      localStorage.setItem("step2_lat", selectedLocation!.lat.toString());
-      localStorage.setItem("step2_lng", selectedLocation!.lng.toString());
-      localStorage.setItem(
-        "step2_config",
-        JSON.stringify(step2Config),
-      );
+      if (selectedLocation) {
+        localStorage.setItem("step2_lat", selectedLocation.lat.toString());
+        localStorage.setItem("step2_lng", selectedLocation.lng.toString());
+      }
 
-      alert("Project saved! Navigating to 3D View...");
-      goToVirtualRoom();
+      navigate("/simulation");
     } catch (error) {
-      console.error(error);
-      alert("Failed to save project.");
+      console.error("❌ Save failed:", error);
+      navigate("/simulation");
     } finally {
       setLoading(false);
     }
   };
+
+  // ✅ 核心修正：加上 : any，这样下面用 .financial_report 等字段时，TS 就不会报错了
+  const analysisData: any = aiReport?.analysis || {};
 
   if (!isLoaded)
     return (
@@ -282,7 +340,7 @@ const CustomizationPage = () => {
           <p className="text-gray-400 text-sm">Step 1: Locate & Configure</p>
         </div>
 
-        {/* address input */}
+        {/* Address Input */}
         <div className="mb-6">
           <label className="text-sm text-gray-300 font-medium flex gap-1 items-center mb-2">
             <MapPin size={16} className="text-red-400" /> Find Your Home
@@ -293,7 +351,7 @@ const CustomizationPage = () => {
           >
             <input
               type="text"
-              placeholder="Search or click map..."
+              placeholder="Search Singapore address..."
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               className="w-full bg-zinc-800 text-white border border-gray-600 rounded-lg p-3 outline-none focus:border-blue-500 transition-all"
@@ -301,7 +359,7 @@ const CustomizationPage = () => {
           </Autocomplete>
         </div>
 
-        {/* budget adjustment */}
+        {/* Sliders */}
         <div className="mb-6 space-y-4">
           <label className="text-sm text-gray-300 font-medium flex justify-between">
             <span>Avg. Monthly Bill</span>
@@ -337,9 +395,10 @@ const CustomizationPage = () => {
         {/* Special Requirements */}
         <div className="mb-6">
           <label className="text-sm text-gray-300 font-medium flex gap-1 items-center mb-2">
-            <MessageSquare size={16} className="text-purple-400" /> 
-            <span className="bg-purple-900/30 text-purple-200 text-xs px-2 py-0.5 rounded ml-1">AI Context</span>
-            <span className="ml-auto text-xs text-gray-500">Optional</span>
+            <MessageSquare size={16} className="text-purple-400" />
+            <span className="bg-purple-900/30 text-purple-200 text-xs px-2 py-0.5 rounded ml-1">
+              AI Context
+            </span>
           </label>
           <textarea
             value={specialRequirements}
@@ -349,12 +408,16 @@ const CustomizationPage = () => {
           />
         </div>
 
-        {error && (
-          <div className="p-4 bg-red-900/20 text-red-200 text-sm mb-4 rounded border border-red-500/20">
-            {error}
+        {/* Status Messages */}
+        {solarData && solarData.isMock && (
+          <div className="p-3 bg-yellow-900/20 text-yellow-200 text-xs mb-4 rounded border border-yellow-500/20 flex gap-2 items-center">
+            <span>
+              ⚠️ Region not fully scanned. Using estimated data for AI analysis.
+            </span>
           </div>
         )}
 
+        {/* Action Button */}
         <div className="mt-auto pt-6">
           <button
             onClick={generateAIReport}
@@ -369,20 +432,20 @@ const CustomizationPage = () => {
             {loading
               ? "Scanning Roof..."
               : aiLoading
-                ? "AI Analyzing Constraints..."
-                : solarData
-                  ? "Generate AI Strategy"
-                  : "Select Location First"}
+              ? "AI Analyzing Constraints..."
+              : solarData
+              ? "Generate AI Strategy"
+              : "Select Location First"}
           </button>
         </div>
       </div>
 
-      {/* --- Right Panel --- */}
+      {/* --- Right Panel: Map --- */}
       <div className="flex-1 h-screen relative">
         <GoogleMap
           mapContainerStyle={{ width: "100%", height: "100%" }}
           center={CONFIG.DEFAULT_CENTER}
-          zoom={18}
+          zoom={14}
           onLoad={onLoad}
           onUnmount={onUnmount}
           onClick={handleMapClick}
@@ -397,13 +460,10 @@ const CustomizationPage = () => {
         </GoogleMap>
       </div>
 
-      {/* ================================================================= */}
-      {/* --- AI REPORT MODAL (UPDATED FOR NEW DATA STRUCTURE) --- */}
-      {/* ================================================================= */}
-      {showReport && solarData && aiReportData && (
+      {/* --- AI REPORT MODAL --- */}
+      {showReport && solarData && aiReport && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-300">
           <div className="bg-zinc-900 border border-white/10 rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-2xl relative">
-            
             {/* Header */}
             <div className="p-6 border-b border-white/10 flex justify-between items-center bg-zinc-900/95 sticky top-0 z-20 backdrop-blur-sm">
               <div>
@@ -411,7 +471,10 @@ const CustomizationPage = () => {
                   <Sparkles className="text-purple-400" /> Helios AI Analysis
                 </h2>
                 <p className="text-xs text-gray-400 mt-1">
-                  Powered by Gemini 1.5 • <span className="text-green-400">Constraint-Aware Engine</span>
+                  Powered by Gemini 3 •{" "}
+                  <span className="text-green-400">
+                    Constraint-Aware Engine
+                  </span>
                 </p>
               </div>
               <button
@@ -424,25 +487,30 @@ const CustomizationPage = () => {
 
             {/* AI Reasoning Section */}
             <div className="p-6 border-b border-white/5 bg-gradient-to-b from-purple-900/10 to-zinc-900/30">
-              
               {/* Suitability Badge */}
               <div className="flex flex-wrap gap-4 mb-6">
-                 <div className="flex items-center gap-2">
-                    <span className="text-gray-400 text-sm font-medium">Status:</span>
-                    <span className={`px-3 py-1 text-sm font-bold rounded-full border ${
-                        aiReportData.ui_display.suitability.includes("Suitable") 
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 text-sm font-medium">
+                    Status:
+                  </span>
+                  <span
+                    className={`px-3 py-1 text-sm font-bold rounded-full border ${
+                      analysisData.ui_display?.suitability?.includes("Suitable")
                         ? "bg-green-500/20 text-green-400 border-green-500/30"
                         : "bg-blue-500/20 text-blue-400 border-blue-500/30"
-                    }`}>
-                      {aiReportData.ui_display.suitability}
-                    </span>
-                 </div>
-                 <div className="flex items-center gap-2">
-                    <span className="text-gray-400 text-sm font-medium">Method:</span>
-                    <span className="px-3 py-1 text-sm font-bold rounded-full border bg-white/10 text-white border-white/20">
-                      {aiReportData.ui_display.installation_method}
-                    </span>
-                 </div>
+                    }`}
+                  >
+                    {analysisData.ui_display?.suitability}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 text-sm font-medium">
+                    Method:
+                  </span>
+                  <span className="px-3 py-1 text-sm font-bold rounded-full border bg-white/10 text-white border-white/20">
+                    {analysisData.ui_display?.installation_method}
+                  </span>
+                </div>
               </div>
 
               {/* Reasoning List */}
@@ -451,65 +519,90 @@ const CustomizationPage = () => {
                   <MessageSquare size={14} /> Why this solution?
                 </div>
                 <ul className="space-y-3">
-                  {aiReportData.ui_display.reasons.map((reason, idx) => (
-                    <li key={idx} className="flex gap-3 items-start text-gray-300 text-sm">
-                      <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-purple-500 flex-shrink-0" />
-                      <span className="leading-relaxed">{reason}</span>
-                    </li>
-                  ))}
+                  {analysisData.ui_display?.reasons?.map(
+                    (reason: string, idx: number) => (
+                      <li
+                        key={idx}
+                        className="flex gap-3 items-start text-gray-300 text-sm"
+                      >
+                        <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-purple-500 flex-shrink-0" />
+                        <span className="leading-relaxed">{reason}</span>
+                      </li>
+                    )
+                  )}
                 </ul>
               </div>
             </div>
 
-            {/* Financial & Technical Grid (Updated Mapping) */}
+            {/* Financial & Technical Grid */}
             <div className="p-6 bg-zinc-900">
-               <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-4">Projected Metrics</h3>
-               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  
-                  {/* Card 1: Panel Count */}
-                  <div className="bg-zinc-800/50 p-4 rounded-xl border border-white/5">
-                    <div className="text-gray-500 text-xs mb-1">Recommended System</div>
-                    <div className="text-xl font-bold text-white">
-                      {aiReportData.technical_config.panel_count} <span className="text-sm font-normal text-gray-500">Panels</span>
-                    </div>
-                    <div className="text-xs text-blue-400 mt-1 capitalize">
-                      {aiReportData.technical_config.placement.replace("_", " ")} Mount
-                    </div>
+              <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-4">
+                Projected Metrics
+              </h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {/* Card 1: Panel Count */}
+                <div className="bg-zinc-800/50 p-4 rounded-xl border border-white/5">
+                  <div className="text-gray-500 text-xs mb-1">
+                    Recommended System
                   </div>
+                  <div className="text-xl font-bold text-white">
+                    {analysisData.technical_config?.panel_count}{" "}
+                    <span className="text-sm font-normal text-gray-500">
+                      Panels
+                    </span>
+                  </div>
+                  <div className="text-xs text-blue-400 mt-1 capitalize">
+                    {analysisData.technical_config?.placement?.replace(
+                      "_",
+                      " "
+                    )}{" "}
+                    Mount
+                  </div>
+                </div>
 
-                  {/* Card 2: Savings */}
-                  <div className="bg-zinc-800/50 p-4 rounded-xl border border-white/5">
-                    <div className="text-gray-500 text-xs mb-1">Est. Yearly Savings</div>
-                    <div className="text-xl font-bold text-green-400">
-                      RM {aiReportData.financial_report.yearly_savings_rm.toLocaleString()}
-                    </div>
-                    <div className="text-xs text-green-600/70 mt-1 flex items-center gap-1">
-                      <TrendingUp size={12} /> ROI: {aiReportData.financial_report.roi_years} Years
-                    </div>
+                {/* Card 2: Savings */}
+                <div className="bg-zinc-800/50 p-4 rounded-xl border border-white/5">
+                  <div className="text-gray-500 text-xs mb-1">
+                    Est. Yearly Savings
                   </div>
+                  <div className="text-xl font-bold text-green-400">
+                    RM{" "}
+                    {analysisData.financial_report?.yearly_savings_rm?.toLocaleString()}
+                  </div>
+                  <div className="text-xs text-green-600/70 mt-1 flex items-center gap-1">
+                    <TrendingUp size={12} /> ROI:{" "}
+                    {analysisData.financial_report?.roi_years} Years
+                  </div>
+                </div>
 
-                  {/* Card 3: Install Cost */}
-                  <div className="bg-zinc-800/50 p-4 rounded-xl border border-white/5">
-                    <div className="text-gray-500 text-xs mb-1">Est. Install Cost</div>
-                    <div className="text-xl font-bold text-white">
-                      RM {aiReportData.financial_report.estimated_install_cost.toLocaleString()}
-                    </div>
-                    <div className="text-xs text-gray-500 mt-1">
-                      Market Avg.
-                    </div>
+                {/* Card 3: Install Cost */}
+                <div className="bg-zinc-800/50 p-4 rounded-xl border border-white/5">
+                  <div className="text-gray-500 text-xs mb-1">
+                    Est. Install Cost
                   </div>
+                  <div className="text-xl font-bold text-white">
+                    RM{" "}
+                    {analysisData.financial_report?.estimated_install_cost?.toLocaleString()}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">Market Avg.</div>
+                </div>
 
-                   {/* Card 4: Carbon */}
-                   <div className="bg-zinc-800/50 p-4 rounded-xl border border-white/5">
-                    <div className="text-gray-500 text-xs mb-1">Carbon Offset</div>
-                    <div className="text-xl font-bold text-white">
-                      {solarData.carbon} <span className="text-sm font-normal text-gray-500">kg</span>
-                    </div>
-                    <div className="text-xs text-green-500/70 mt-1 flex items-center gap-1">
-                      <Leaf size={12} /> Eco-friendly
-                    </div>
+                {/* Card 4: Carbon */}
+                <div className="bg-zinc-800/50 p-4 rounded-xl border border-white/5">
+                  <div className="text-gray-500 text-xs mb-1">
+                    Carbon Offset
                   </div>
-               </div>
+                  <div className="text-xl font-bold text-white">
+                    {solarData.carbon}{" "}
+                    <span className="text-sm font-normal text-gray-500">
+                      kg
+                    </span>
+                  </div>
+                  <div className="text-xs text-green-500/70 mt-1 flex items-center gap-1">
+                    <Leaf size={12} /> Eco-friendly
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Bottom Controls */}

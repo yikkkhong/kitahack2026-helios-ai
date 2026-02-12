@@ -23,7 +23,7 @@ import { httpsCallable } from "firebase/functions";
 import { useNavigate } from "react-router-dom";
 
 // --- Types Definition ---
-// 为了防止红线，我们在使用时会强制转为 any，但保留定义作为参考
+// To avoid red lines, we will force conversion to any when using it, but retain the definition for reference
 interface AIReport {
   success?: boolean;
   analysis: {
@@ -57,7 +57,7 @@ interface AIReport {
 // --- Configuration ---
 const CONFIG = {
   GOOGLE_MAPS_API_KEY:
-    import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "YOUR_API_KEY",
+    import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "API_KEY",
   DEFAULT_CENTER: { lat: 1.3521, lng: 103.8198 },
   SOLAR_API_URL: "https://solar.googleapis.com/v1/buildingInsights:findClosest",
 };
@@ -71,7 +71,7 @@ const CustomizationPage = () => {
   const [budget, setBudget] = useState<number>(15000);
   const [loading, setLoading] = useState(false);
 
-  // solarData 存储 API 返回的原始数据
+  // raw data returned by the solarData storage API
   const [solarData, setSolarData] = useState<any>(null);
 
   const [selectedLocation, setSelectedLocation] =
@@ -85,7 +85,7 @@ const CustomizationPage = () => {
   const [specialRequirements, setSpecialRequirements] = useState<string>("");
   const [aiLoading, setAiLoading] = useState<boolean>(false);
 
-  // 🔄 State: 存储 AI 报告
+  // 🔄 State: Storage AI Report
   const [aiReport, setAiReport] = useState<AIReport | null>(null);
 
   // Load Google Maps Script
@@ -124,14 +124,27 @@ const CustomizationPage = () => {
     };
   };
 
+  // 📏 Core Algorithm: Calculates the actual distance (in meters) between two points of latitude and longitude on Earth.
+  const getDistanceInMeters = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+    const R = 6371e3; // 地球半径
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  };
+
   // --- Solar Data Processing ---
+  // 🟢 Input the precise coordinates of the user's click (userLat, userLng)
   const processSolarData = (data: any) => {
     const potential = data.solarPotential;
     if (!potential) throw new Error("No solar potential data found.");
 
     const maxPanels = potential.maxArrayPanelsCount;
-    const sunshineHours = potential.maxSunshineHoursPerYear || 1800;
     const roofArea = potential.maxArrayAreaMeters2;
+    const sunshineHours = potential.maxSunshineHoursPerYear || 1800;
     const maxKwhYear = roofArea * 150;
     const moneySavedYear = maxKwhYear * 0.50;
     const carbonOffset = potential.carbonOffsetFactorKgPerMwh
@@ -146,7 +159,6 @@ const CustomizationPage = () => {
       yearlySavings: Math.round(moneySavedYear),
       carbon: Math.round(carbonOffset),
       isMock: false,
-      // 🔄 必须把原始数据透传出去，Step 2 才能拿到真实高度！
       solarPotential: potential, 
     };
   };
@@ -160,30 +172,30 @@ const CustomizationPage = () => {
     setAiReport(null);
 
     try {
-      console.log("📡 尝试 1: 获取标准高清数据...");
+      console.log("📡 Attempt 1: Acquire Standard High-Resolution Data...");
       let url = `${CONFIG.SOLAR_API_URL}?location.latitude=${lat}&location.longitude=${lng}&requiredQuality=HIGH&key=${CONFIG.GOOGLE_MAPS_API_KEY}`;
 
       let response = await fetch(url);
 
       if (response.status === 404) {
-        console.warn("⚠️ 标准数据未找到，尝试切换到普通/实验模式...");
+        console.warn("⚠️ Standard data not found. Try switching to Normal/Experimental mode....");
         url = `${CONFIG.SOLAR_API_URL}?location.latitude=${lat}&location.longitude=${lng}&requiredQuality=BASE&experiments=EXPANDED_COVERAGE&key=${CONFIG.GOOGLE_MAPS_API_KEY}`;
         response = await fetch(url);
       }
 
       if (!response.ok) {
-        console.warn("❌ API 两次请求都失败，使用 Mock 数据。");
+        console.warn("❌ API requests failed twice; use mock data.");
         setSolarData(generateMockSolarData());
         return;
       }
 
       const data = await response.json();
-      console.log("✅ 成功获取 Solar 数据:", data);
+      console.log("✅ Successfully acquired Solar data:", data);
 
       const processed = processSolarData(data);
       setSolarData(processed);
     } catch (err: any) {
-      console.error("🔥 系统错误:", err);
+      console.error("🔥 System Error:", err);
       setSolarData(generateMockSolarData());
     } finally {
       setLoading(false);
@@ -222,20 +234,37 @@ const CustomizationPage = () => {
   const navigate = useNavigate();
 
   // --- Generate AI Report ---
-  const generateAIReport = async () => {
+// --- Generate AI Report ---
+const generateAIReport = async () => {
     if (!solarData || !selectedLocation) return;
 
     setAiLoading(true);
     try {
-      const analyzeWithGemini = httpsCallable(functions, "analyzeWithGemini");
+      // CClient timeout set to 120 seconds, to match the backend
+      const analyzeWithGemini = httpsCallable(functions, "analyzeWithGemini", { timeout: 120000 });
 
-      // 传递给 AI 的数据
+      const physicalMaxPanels = solarData.panels || 20; 
+      const roofArea = solarData.area || 50;
+
+      // Build a lightweight payload; don't cram the entire solarData into it.
+      // AI only needs to know about panels and areas; it doesn't need the huge object of solarPotential.
+      const slimSolarData = {
+          panels: solarData.panels,
+          area: solarData.area,
+          sunshineHours: solarData.sunshineHours
+          // ❌ Absolutely do not share solarPotential
+      };
+
       const result: any = await analyzeWithGemini({
-        solarData: solarData,
+        solarData: slimSolarData, // ✅ Data after weight loss
         userInputs: {
           bill: bill,
           budget: budget,
           specialRequirements: specialRequirements,
+          roofConstraint: {
+              maxPanels: physicalMaxPanels,
+              areaSqM: roofArea
+          }
         },
         location: {
           address: address,
@@ -260,40 +289,40 @@ const CustomizationPage = () => {
   const handleSaveProject = async () => {
     setLoading(true);
     try {
-      console.log("💾 正在保存项目...");
+      console.log("💾 Saving project...");
 
-      // 🔍 使用 any 绕过类型检查，确保能取到值
+      // 🔍 Use `any` to bypass type checking and ensure the value can be retrieved.
       const report: any = aiReport || {};
       const currentAnalysis = report.analysis || {};
       const techConfig = currentAnalysis.technical_config || {};
 
-      // 🔥 核心逻辑：从 Google Solar API 数据中提取真实高度
-      let bestHeight = 30; // 默认值 (如果 API 没数据)
+      // 🔥 Core logic: Extracting the actual height from Google Solar API data
+      let bestHeight = 30; // Default value (if the API has no data)
 
       if (solarData && !solarData.isMock && solarData.solarPotential?.roofSegmentStats) {
         const segments = solarData.solarPotential.roofSegmentStats;
         if (segments.length > 0) {
-            // 按面积排序，找最大的片段
+            // Sort by area and find the largest segment.
             segments.sort((a: any, b: any) => (b.stats?.areaMeters2 || 0) - (a.stats?.areaMeters2 || 0));
             const mainRoof = segments[0];
             
-            // 获取 Google 测量的海拔高度
+            // Get the altitude measured by Google
             if (mainRoof.planeHeightAtCenterMeters) {
                 bestHeight = mainRoof.planeHeightAtCenterMeters;
-                console.log("🎯 Google Solar API 提供的精准高度:", bestHeight);
+                console.log("🎯 Precise altitude provided by Google Solar API:", bestHeight);
             }
         }
       }
 
-      // 准备蓝图 (The Blueprint)
+      // Preparing the Blueprint
       const blueprint = {
-        technical: {
+        technical_config: {
           panel_count: techConfig.panel_count || 20,
           grid_layout: techConfig.grid_layout || { rows: 4, columns: 5 },
           orientation: techConfig.orientation || "PORTRAIT",
           azimuth: 180,
           tilt: 20,
-          roof_height: bestHeight // ✅ 存入真实高度
+          roof_height: bestHeight, // ✅ Save actual height
         },
         visual: {
           panel_color: techConfig.panel_color || "BLACK",
@@ -302,7 +331,7 @@ const CustomizationPage = () => {
         financial: currentAnalysis.financial_report || {},
       };
 
-      // 存入 LocalStorage
+      // Store in LocalStorage
       localStorage.setItem("step2_solar_blueprint", JSON.stringify(blueprint));
 
       if (selectedLocation) {
@@ -319,7 +348,7 @@ const CustomizationPage = () => {
     }
   };
 
-  // ✅ 核心修正：加上 : any，这样下面用 .financial_report 等字段时，TS 就不会报错了
+  // Adding ": any" will prevent TypeScript from throwing errors when using fields like ".financial_report" below.
   const analysisData: any = aiReport?.analysis || {};
 
   if (!isLoaded)
@@ -471,7 +500,7 @@ const CustomizationPage = () => {
                   <Sparkles className="text-purple-400" /> Helios AI Analysis
                 </h2>
                 <p className="text-xs text-gray-400 mt-1">
-                  Powered by Gemini 3 •{" "}
+                  Powered by Gemini 2.5 •{" "}
                   <span className="text-green-400">
                     Constraint-Aware Engine
                   </span>

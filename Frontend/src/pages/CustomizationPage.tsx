@@ -16,6 +16,9 @@ import {
   MessageSquare,
   Sparkles,
   TrendingUp,
+  Unlock,
+  Activity,
+  RefreshCw
 } from "lucide-react";
 
 import { functions } from "../firebase";
@@ -32,6 +35,13 @@ interface AIReport {
       suitability: string;
       installation_method: string;
       reasons: string[];
+    };
+    // 🟢 新增这部分
+    asset_potential?: {
+      total_eru_10yr: number;
+      initial_grant_eru: number;
+      eru_peg_rate_rm: number;
+      total_fiat_value_10yr: number;
     };
     financial_report?: {
       estimated_install_cost: number;
@@ -85,6 +95,16 @@ const CustomizationPage = () => {
   const [specialRequirements, setSpecialRequirements] = useState<string>("");
   const [aiLoading, setAiLoading] = useState<boolean>(false);
 
+  // Future Concerns Option
+  const [selectedConcern, setSelectedConcern] = useState<string>("None");
+
+  const futureConcerns = [
+    { id: "None", label: "No major changes expected" },
+    { id: "Relocation", label: "Might move house in 3-5 years" },
+    { id: "EmptyNest", label: "Kids moving out (Lower energy needs)" },
+    { id: "Liquidity", label: "Worried about locking up cash" },
+  ];
+
   // 🔄 State: Storage AI Report
   const [aiReport, setAiReport] = useState<AIReport | null>(null);
 
@@ -126,7 +146,7 @@ const CustomizationPage = () => {
 
   // 📏 Core Algorithm: Calculates the actual distance (in meters) between two points of latitude and longitude on Earth.
   const getDistanceInMeters = (lat1: number, lng1: number, lat2: number, lng2: number) => {
-    const R = 6371e3; // 地球半径
+    const R = 6371e3; // Earth radius
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLng = (lng2 - lng1) * Math.PI / 180;
     const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
@@ -233,9 +253,9 @@ const CustomizationPage = () => {
 
   const navigate = useNavigate();
 
+
   // --- Generate AI Report ---
-// --- Generate AI Report ---
-const generateAIReport = async () => {
+  const generateAIReport = async () => {
     if (!solarData || !selectedLocation) return;
 
     setAiLoading(true);
@@ -260,7 +280,7 @@ const generateAIReport = async () => {
         userInputs: {
           bill: bill,
           budget: budget,
-          specialRequirements: specialRequirements,
+          specialRequirements: `User Concern: ${selectedConcern}. Notes: ${specialRequirements}`,
           roofConstraint: {
               maxPanels: physicalMaxPanels,
               areaSqM: roofArea
@@ -274,7 +294,7 @@ const generateAIReport = async () => {
       console.log("AI Result:", result.data);
 
       if (result.data.success) {
-        // 将整个结果存入 aiReport
+        // Store the entire result in aiReport
         setAiReport(result.data);
         setShowReport(true);
       }
@@ -314,15 +334,26 @@ const generateAIReport = async () => {
         }
       }
 
+      let finalPlacement = techConfig.placement || "ROOFTOP";
+      let finalPanelCount = techConfig.panel_count || 20;
+
+      if (finalPlacement.toUpperCase().includes("BALCONY")) {
+          console.log("🏢 Apartment mode detected: Automatically apply 2-Panel Starter Kit");
+          finalPanelCount = 2; 
+          // The logic here is: the AI ​​might suggest 10 panels based on the electricity cost.
+          // However, in order for the SimulationPage to display correctly and conform to the laws of physics, we need to "press" it back to 2 pieces.
+      }
+
       // Preparing the Blueprint
       const blueprint = {
         technical_config: {
-          panel_count: techConfig.panel_count || 20,
+          panel_count: finalPanelCount,
           grid_layout: techConfig.grid_layout || { rows: 4, columns: 5 },
           orientation: techConfig.orientation || "PORTRAIT",
           azimuth: 180,
           tilt: 20,
           roof_height: bestHeight, // ✅ Save actual height
+          placement: finalPlacement,
         },
         visual: {
           panel_color: techConfig.panel_color || "BLACK",
@@ -332,14 +363,21 @@ const generateAIReport = async () => {
       };
 
       // Store in LocalStorage
+      // Also store the selected concern and location for use in the SimulationPage, so that we can display it in the UI and use it in the logic there.
       localStorage.setItem("step2_solar_blueprint", JSON.stringify(blueprint));
+      localStorage.setItem("step1_concern", selectedConcern || "Relocation");
 
       if (selectedLocation) {
         localStorage.setItem("step2_lat", selectedLocation.lat.toString());
         localStorage.setItem("step2_lng", selectedLocation.lng.toString());
       }
 
-      navigate("/simulation");
+      navigate("/simulation", {
+        state: { 
+          blueprintData: blueprint, 
+          concernData: selectedConcern || "Relocation"
+        }
+      });
     } catch (error) {
       console.error("❌ Save failed:", error);
       navigate("/simulation");
@@ -421,19 +459,41 @@ const generateAIReport = async () => {
           />
         </div>
 
-        {/* Special Requirements */}
+        {/* Lifecycle Concerns (addressing key pain points) */}
+        <div className="mb-6">
+          <label className="text-sm text-gray-300 font-medium flex gap-1 items-center mb-3">
+            <Activity size={16} className="text-purple-400" />
+            Future Outlook (The "Blind Gamble")
+          </label>
+          
+          <div className="flex flex-col gap-2">
+            {futureConcerns.map((concern) => (
+              <button
+                key={concern.id}
+                onClick={() => setSelectedConcern(concern.id)}
+                className={`text-left px-4 py-3 rounded-lg text-sm transition-all border ${
+                  selectedConcern === concern.id
+                    ? "bg-purple-600/20 border-purple-500 text-purple-200 shadow-[0_0_10px_rgba(168,85,247,0.2)]"
+                    : "bg-zinc-800/50 border-gray-700 text-gray-400 hover:bg-zinc-700 hover:border-gray-500"
+                }`}
+              >
+                {concern.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Property Types and Supplementary Information (Reduced) */}
         <div className="mb-6">
           <label className="text-sm text-gray-300 font-medium flex gap-1 items-center mb-2">
-            <MessageSquare size={16} className="text-purple-400" />
-            <span className="bg-purple-900/30 text-purple-200 text-xs px-2 py-0.5 rounded ml-1">
-              AI Context
-            </span>
+            <MessageSquare size={16} className="text-blue-400" />
+            Property Type & Notes
           </label>
           <textarea
             value={specialRequirements}
             onChange={(e) => setSpecialRequirements(e.target.value)}
-            placeholder="Tell AI: 'I live in a condo with no balcony' or 'I am renting'..."
-            className="w-full bg-zinc-800 text-white border border-gray-600 rounded-lg p-3 outline-none focus:border-purple-500 min-h-[100px] text-sm transition-all"
+            placeholder="e.g., 'I live in a Condo', 'No roof access'..."
+            className="w-full bg-zinc-800/80 text-white border border-gray-700 rounded-lg p-3 outline-none focus:border-blue-500 min-h-[80px] text-sm transition-all"
           />
         </div>
 
@@ -563,75 +623,114 @@ const generateAIReport = async () => {
               </div>
             </div>
 
-            {/* Financial & Technical Grid */}
+            {/* Financial, Technical & Asset Grid */}
             <div className="p-6 bg-zinc-900">
-              <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-4">
-                Projected Metrics
+              
+              {/* Asset Management Popular Science Banner*/}
+              <div className="mb-6 p-4 bg-gradient-to-r from-purple-900/40 to-blue-900/20 border border-purple-500/30 rounded-xl">
+                <h3 className="text-purple-300 font-bold mb-2 flex items-center gap-2">
+                  <Sparkles size={16} /> Solar Assetization Activated
+                </h3>
+                <p className="text-gray-300 text-sm leading-relaxed">
+                  Your system doesn't just save electricity—it mints <strong className="text-purple-400">Energy Revenue Units (ERU)</strong>. 
+                  <br/>
+                  <span className="text-xs text-gray-400 mt-1 inline-block">
+                    ⚡ 1 ERU = 1 kWh produced. <br/>
+                    💰 You can <b>Hold</b>, <b>Buy</b>, or <b>Sell</b> ERUs for cash anytime.
+                  </span>
+                </p>
+              </div>
+
+              {/* 🟢 First row: Digital Asset Indicators (ERU Assets)*/}
+              <h3 className="text-purple-400 text-xs font-bold uppercase tracking-wider mb-3 flex items-center gap-1">
+                Your Digital Assets
+              </h3>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+                
+                {/* 1. total amount */}
+                <div className="bg-zinc-800/50 p-4 rounded-xl border border-white/5 relative overflow-hidden">
+                  <div className="absolute -right-4 -top-4 opacity-5"><Activity size={64} /></div>
+                  <div className="text-gray-500 text-xs mb-1">10-Year ERU Cap</div>
+                  <div className="text-xl font-bold text-white">
+                    {analysisData.asset_potential?.total_eru_10yr?.toLocaleString()} <span className="text-sm font-normal text-gray-500">ERU</span>
+                  </div>
+                  <div className="text-[10px] text-gray-500 mt-1">Total Mined Potential</div>
+                </div>
+
+                {/* 2. Initial distribution (highlighted) */}
+                <div className="bg-gradient-to-br from-green-900/40 to-zinc-800/50 p-4 rounded-xl border border-green-500/40 shadow-[0_0_15px_rgba(34,197,94,0.1)] relative overflow-hidden">
+                  <div className="absolute -right-2 -top-2 opacity-10"><Unlock size={48} /></div>
+                  <div className="text-green-400/90 text-xs mb-1 font-bold flex items-center gap-1">
+                    Initial Unlocked
+                  </div>
+                  <div className="text-2xl font-bold text-green-400">
+                    {analysisData.asset_potential?.initial_grant_eru?.toLocaleString()}
+                  </div>
+                  <div className="text-xs text-green-500/70 mt-1 font-mono">
+                    ≈ RM {(analysisData.asset_potential?.initial_grant_eru * analysisData.asset_potential?.eru_peg_rate_rm).toLocaleString()} Value
+                  </div>
+                </div>
+
+                {/* 3. Cash-anchored value */}
+                <div className="bg-zinc-800/50 p-4 rounded-xl border border-white/5">
+                  <div className="text-gray-500 text-xs mb-1">Est. 10-Yr Fiat Value</div>
+                  <div className="text-xl font-bold text-white">
+                    RM {analysisData.asset_potential?.total_fiat_value_10yr?.toLocaleString()}
+                  </div>
+                  <div className="text-[10px] text-purple-400 mt-1 flex items-center gap-1">
+                    <RefreshCw size={10}/> Pegged @ RM {analysisData.asset_potential?.eru_peg_rate_rm?.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+
+              {/* 🟢 Second row: Traditional physical hardware and financial performance */}
+              <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-3">
+                Physical Hardware & Impact
               </h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {/* Card 1: Panel Count */}
+                
+                {/* System Size */}
                 <div className="bg-zinc-800/50 p-4 rounded-xl border border-white/5">
-                  <div className="text-gray-500 text-xs mb-1">
-                    Recommended System
+                  <div className="text-gray-500 text-xs mb-1">System Size</div>
+                  <div className="text-lg font-bold text-white">
+                    {analysisData.technical_config?.panel_count} <span className="text-xs font-normal text-gray-500">Panels</span>
                   </div>
-                  <div className="text-xl font-bold text-white">
-                    {analysisData.technical_config?.panel_count}{" "}
-                    <span className="text-sm font-normal text-gray-500">
-                      Panels
-                    </span>
-                  </div>
-                  <div className="text-xs text-blue-400 mt-1 capitalize">
-                    {analysisData.technical_config?.placement?.replace(
-                      "_",
-                      " "
-                    )}{" "}
-                    Mount
-                  </div>
+                  <div className="text-xs text-blue-400 mt-1 capitalize">{analysisData.technical_config?.placement}</div>
                 </div>
-
-                {/* Card 2: Savings */}
+                
+                {/* Install Cost */}
                 <div className="bg-zinc-800/50 p-4 rounded-xl border border-white/5">
-                  <div className="text-gray-500 text-xs mb-1">
-                    Est. Yearly Savings
-                  </div>
-                  <div className="text-xl font-bold text-green-400">
-                    RM{" "}
-                    {analysisData.financial_report?.yearly_savings_rm?.toLocaleString()}
-                  </div>
-                  <div className="text-xs text-green-600/70 mt-1 flex items-center gap-1">
-                    <TrendingUp size={12} /> ROI:{" "}
-                    {analysisData.financial_report?.roi_years} Years
-                  </div>
-                </div>
-
-                {/* Card 3: Install Cost */}
-                <div className="bg-zinc-800/50 p-4 rounded-xl border border-white/5">
-                  <div className="text-gray-500 text-xs mb-1">
-                    Est. Install Cost
-                  </div>
-                  <div className="text-xl font-bold text-white">
-                    RM{" "}
-                    {analysisData.financial_report?.estimated_install_cost?.toLocaleString()}
+                  <div className="text-gray-500 text-xs mb-1">Install Cost</div>
+                  <div className="text-lg font-bold text-white">
+                    RM {analysisData.financial_report?.estimated_install_cost?.toLocaleString()}
                   </div>
                   <div className="text-xs text-gray-500 mt-1">Market Avg.</div>
                 </div>
 
-                {/* Card 4: Carbon */}
+                {/* ROI & Savings */}
                 <div className="bg-zinc-800/50 p-4 rounded-xl border border-white/5">
-                  <div className="text-gray-500 text-xs mb-1">
-                    Carbon Offset
+                  <div className="text-gray-500 text-xs mb-1">Traditional ROI</div>
+                  <div className="text-lg font-bold text-green-400">
+                    {analysisData.financial_report?.roi_years} <span className="text-xs font-normal text-green-600/70">Years</span>
                   </div>
-                  <div className="text-xl font-bold text-white">
-                    {solarData.carbon}{" "}
-                    <span className="text-sm font-normal text-gray-500">
-                      kg
-                    </span>
-                  </div>
-                  <div className="text-xs text-green-500/70 mt-1 flex items-center gap-1">
-                    <Leaf size={12} /> Eco-friendly
+                  <div className="text-[10px] text-green-600/70 mt-1 flex items-center gap-1">
+                    <TrendingUp size={10} /> Save RM {analysisData.financial_report?.yearly_savings_rm}/yr
                   </div>
                 </div>
+
+                {/* Carbon Offset */}
+                <div className="bg-zinc-800/50 p-4 rounded-xl border border-white/5">
+                  <div className="text-gray-500 text-xs mb-1">Carbon Offset</div>
+                  <div className="text-lg font-bold text-white">
+                    {solarData?.carbon || 0} <span className="text-xs font-normal text-gray-500">kg</span>
+                  </div>
+                  <div className="text-[10px] text-green-500/70 mt-1 flex items-center gap-1">
+                    <Leaf size={10} /> Eco-friendly
+                  </div>
+                </div>
+
               </div>
+
             </div>
 
             {/* Bottom Controls */}

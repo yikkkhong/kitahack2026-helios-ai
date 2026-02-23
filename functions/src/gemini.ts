@@ -21,21 +21,17 @@ function formatToPerfectGrid(targetPanels: number) {
     return { count: 1, rows: 1, cols: 1 };
 }
 
-// ================================================================
-// PART 1: Schema definition
-// ================================================================
+// =================================================================================
+// PART 1: Schema Definition (Integrated Version: Physical + Financial + ERU Assets)
+// =================================================================================
 const analysisSchema = {
-  description: "Solar analysis report with 3D visualization parameters",
+  description: "Solar analysis with traditional financials and ERU assetization",
   type: SchemaType.OBJECT,
   properties: {
-    // 1. AI thought process
-    internal_thought_process: {
-      type: SchemaType.STRING,
-      description: "YOUR INTERNAL MONOLOGUE. Analyze the user's tone, constraints, and hidden needs.",
-      nullable: false,
-    },
+    // 1. AI thought process (for internal use, not shown to users)
+    internal_thought_process: { type: SchemaType.STRING, nullable: false },
     
-    // 2. UI display result
+    // 2. UI show data (suitability, installation method, reasons) - for user display
     ui_display: {
       type: SchemaType.OBJECT,
       properties: {
@@ -46,233 +42,205 @@ const analysisSchema = {
       required: ["suitability", "installation_method", "reasons"]
     },
 
-    // 3. financial report
+    // 3. 🟢 Traditional financial statements (physical costs shown to the judges)
     financial_report: {
       type: SchemaType.OBJECT,
       properties: {
         estimated_install_cost: { type: SchemaType.NUMBER },
         yearly_savings_rm: { type: SchemaType.NUMBER },
-        roi_years: { type: SchemaType.NUMBER },
-        breakeven_year: { type: SchemaType.NUMBER }
+        roi_years: { type: SchemaType.NUMBER }
       },
-      required: ["estimated_install_cost", "yearly_savings_rm", "roi_years", "breakeven_year"]
+      required: ["estimated_install_cost", "yearly_savings_rm", "roi_years"]
     },
 
-    // 4. Technology and 3D Configuration
+    // 4. 🟢 ERU Asset Potential Model (Your Core Innovation)
+    asset_potential: {
+      type: SchemaType.OBJECT,
+      properties: {
+        total_eru_10yr: { type: SchemaType.NUMBER, description: "Total 10-year ERU limit based on kWh" },
+        initial_grant_eru: { type: SchemaType.NUMBER, description: "Initial ERU unlocked instantly" },
+        eru_peg_rate_rm: { type: SchemaType.NUMBER, description: "Fixed RM value per ERU (e.g. 0.50)" },
+        total_fiat_value_10yr: { type: SchemaType.NUMBER, description: "Total fiat value over 10 years" }
+      },
+      required: ["total_eru_10yr", "initial_grant_eru", "eru_peg_rate_rm", "total_fiat_value_10yr"]
+    },
+
+    // 5. Technical configuration
     technical_config: {
       type: SchemaType.OBJECT,
       properties: {
         panel_count: { type: SchemaType.NUMBER },
-        
-        // Placement
-        placement: { type: SchemaType.STRING, description: "rooftop, balcony, window, car_porch, ground, or virtual" },
-        
+        placement: { type: SchemaType.STRING, enum: ["ROOFTOP", "BALCONY"] }, // Removed VIRTUAL
         system_size_kw: { type: SchemaType.NUMBER },
-        
-        // 🧱 Array layout
         grid_layout: {
             type: SchemaType.OBJECT,
-            properties: {
-                rows: { type: SchemaType.NUMBER },
-                columns: { type: SchemaType.NUMBER }
-            },
+            properties: { rows: { type: SchemaType.NUMBER }, columns: { type: SchemaType.NUMBER } },
             required: ["rows", "columns"]
         },
-
-        // 📐 Placement direction
-        orientation: { 
-            type: SchemaType.STRING, 
-            description: "PORTRAIT (vertical) or LANDSCAPE (horizontal)",
-            enum: ["PORTRAIT", "LANDSCAPE"] 
-        },
-
-        // 🎨 Visual Style
-        panel_color: { 
-            type: SchemaType.STRING, 
-            description: "BLACK (Monocrystalline - Premium/Modern) or BLUE (Polycrystalline - Budget)",
-            enum: ["BLACK", "BLUE"] 
-        }
+        orientation: { type: SchemaType.STRING, enum: ["PORTRAIT", "LANDSCAPE"] },
+        panel_color: { type: SchemaType.STRING, enum: ["BLACK", "BLUE"] }
       },
       required: ["panel_count", "placement", "system_size_kw", "grid_layout", "orientation", "panel_color"]
     },
-
-    // 5. Next step
-    next_steps: {
-      type: SchemaType.ARRAY,
-      items: { type: SchemaType.STRING }
-    }
+    next_steps: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } }
   },
-  required: ["internal_thought_process", "ui_display", "financial_report", "technical_config", "next_steps"]
+  required: ["internal_thought_process", "ui_display", "financial_report", "asset_potential", "technical_config", "next_steps"]
 };
 
 // ================================================================
-// PART 2: Step 1 Customization Page Main Logic (Gemini Integration)
+// PART 2: Step 1 Logic (Asset Discovery)
 // ================================================================
 
 export const analyzeWithGemini = onCall({ cors: true, timeoutSeconds: 120 }, async (request) => {
   const apiKey = process.env.GEMINI_API_KEY;
-  console.log(`🔑 [Step 1] Key Status: ${apiKey ? 'Loaded' : 'MISSING'}`);
-
   if (!apiKey) throw new HttpsError('failed-precondition', 'Missing API Key');
 
   const { solarData, userInputs, location } = request.data;
-
-  const maxPanels = userInputs.roofConstraint?.maxPanels || 50;
-  const roofArea = userInputs.roofConstraint?.areaSqM || 100;
   
-  // 1. Prompt logic
+  const maxPanels = userInputs.roofConstraint?.maxPanels || 50;
   const userRawVoice = userInputs.specialRequirements || "No special requests.";
   
+  // 🟢 A minimalist Prompt: Focused on hardware evaluation, no longer offering lifestyle advice.
   const prompt = `
-    Role: You are Helios, a world-class Solar Energy Consultant in Malaysia.
-    Your distinctive quality is **ADAPTABILITY**. You do not use scripts. You listen to the user's specific situation and design a custom solution.
-
-    --- CLIENT PROFILE ---
+    Role: You are Helios, a Solar Asset Evaluator.
+    
+    --- CLIENT DATA ---
     Location: ${location.address || "Unknown"}
     Monthly Bill: RM ${userInputs.bill}
-    Budget: RM ${userInputs.budget}
+    Physical Roof Limit: Max ${maxPanels} panels
+    Context: "${userRawVoice}"
 
-    --- 🛑 PHYSICS LOCK (CRITICAL) ---
-    The user's roof has a PHYSICAL HARD LIMIT.
-    - Max Possible Panels: ${maxPanels} (Do NOT exceed this number!)
-    - Roof Area: ${roofArea} sqm
-    
-    Logic for Panel Count (Follow strictly):
-    1. Calculate panels to cover the Bill: (Bill RM ${userInputs.bill} / RM 25) = Needed Panels.
-    2. Calculate max affordable panels: (Budget RM ${userInputs.budget} / RM 1500) = Affordable Panels.
-    3. Final Panel Count = The LOWEST number among: (Needed Panels), (Affordable Panels), and (${maxPanels}).
-    4. NEVER recommend a massive system that produces way more than the user's bill just because they have a high budget! Be realistic.  .
-    
-    --- CLIENT'S RAW VOICE (CRITICAL) ---
-    "${userRawVoice}"
+    --- HARDWARE LOGIC ---
+    1. Determine Placement: If context says "Condo", "Apartment", "Balcony" -> **BALCONY**. Else -> **ROOFTOP**.
+    2. Panel Calculation:
+       - If ROOFTOP: Calculate panels based on Bill (RM ${userInputs.bill} / RM 25). Max limit is ${maxPanels}.
+       - If BALCONY: Strictly **2 PANELS**.
 
-    --- YOUR MISSION ---
-    1. **INTERPRET INTENT (Not Keywords)**: 
-       - If client says "I don't have a balcony", "No balcony", "Balcony is full", or "My cat hates the balcony" -> These ALL mean **NO BALCONY**.
-       - If client says "I rent", "Not my house", "Landlord issue" -> These ALL mean **NON-PERMANENT SOLUTION**.
-       - If client says "I live in a cave" (Impossible scenario) -> Suggest "Virtual Solar Subscription" or "Portable Battery". DO NOT FAIL.
-    
-    2. **ANALYZE CONFLICTS**:
-       - High Bill + Low Budget? -> Focus on high-ROI, small systems.
-       - Condo Address + "Garden" request? -> Maybe they are on the Ground Floor. Trust the user's specific constraint over the generic address.
-
-    3. **THINK BEFORE YOU SPEAK**:
-       - In the 'internal_thought_process' field, write down your analysis. 
-       - E.g., "Client lives in a condo, explicitly said no balcony. Roof is shared so not an option. Best option is Window Suction Mounts facing South."
-
-    4. **OUTPUT**:
-       - Generate a valid JSON response based on the schema.
-       - 'installation_method' should be a Creative Name, not a generic category. (e.g. "Smart Window Harvester" instead of "Window").
-       - For 'technical_config', calculate a reasonable 'grid_layout' (rows x columns) that roughly equals 'panel_count'.
-       - Choose 'panel_color' based on Budget: High Budget -> BLACK, Low Budget -> BLUE.
-
-      --- STRICT PHYSICAL CONSTRAINTS (CRITICAL) ---
-      1. **Roof Area Limit**: You MUST NOT suggest more panels than the roof can physically fit.
-       - A standard Terrace House (20x70) fits max 20-24 panels.
-       - A Semi-D fits max 30-36 panels.
-       - Even if Budget is RM 1,000,000, DO NOT suggest 50 panels for a small house.
-    
-      2. **Panel Count Logic**:
-       - Always leave safety margins. Do not fill the roof to the edge.
+    Output valid JSON matching the schema.
   `;
 
   const genAI = new GoogleGenerativeAI(apiKey);
-  
-  // Use the model specified. If an error occurs, it will automatically enter Smart Fallback.
   const model = genAI.getGenerativeModel({ 
     model: "gemini-2.5-flash", 
-    generationConfig: { 
-      responseMimeType: "application/json",
-      responseSchema: analysisSchema as any,
-      temperature: 0.5 
-    } 
+    generationConfig: { responseMimeType: "application/json", responseSchema: analysisSchema as any } 
   });
 
   try {
     console.log("🚀 [Step 1] Sending to Gemini...");
     const result = await model.generateContent(prompt);
-    let text = result.response.text();
-    
-    // Give it a quick rinse to prevent the AI ​​from going crazy.
-    text = text.replace(/```json/g, "").replace(/```/g, "").trim();
-    
+    let text = result.response.text().replace(/```json/g, "").replace(/```/g, "").trim();
     const aiAnalysis = JSON.parse(text);
 
-    // 1. Get the number of AI suggestions and implement physical limit (maxPanels) for interception.
-    const rawAiCount = aiAnalysis.technical_config?.panel_count || 1;
-    let targetCount = rawAiCount;
+    // =================================================================
+    // 🟢 Backend forced correction & ERU asset calculation
+    // =================================================================
+    const placement = aiAnalysis.technical_config.placement?.toUpperCase();
 
-    // 2. Physical cap interception
-    if (targetCount > maxPanels) {
-        targetCount = maxPanels;
+    // 1. Fixed physical limitations
+    if (placement === 'BALCONY') {
+        aiAnalysis.technical_config.panel_count = 2;
+        aiAnalysis.technical_config.grid_layout = { rows: 1, columns: 2 };
+        aiAnalysis.technical_config.system_size_kw = 0.9; 
+    } else {
+        let targetCount = aiAnalysis.technical_config.panel_count;
+        if (targetCount > maxPanels) targetCount = maxPanels;
+        const grid = formatToPerfectGrid(targetCount);
+        aiAnalysis.technical_config.panel_count = grid.count;
+        aiAnalysis.technical_config.grid_layout = { rows: grid.rows, columns: grid.cols };
+        aiAnalysis.technical_config.system_size_kw = Number((grid.count * 0.45).toFixed(2));
     }
 
-    // 3. Convert to a perfect grid (will not exceed targetCount)
-    const gridConfig = formatToPerfectGrid(targetCount);
+    const kwp = aiAnalysis.technical_config.system_size_kw;
+
+    // 2. Traditional financial estimation (fixing the issue of AI miscalculating money)
+    const installCost = placement === 'BALCONY' ? 2800 : Math.round(kwp * 3500);
+    const yearlySavings = placement === 'BALCONY' ? 600 : Math.round(kwp * 1400 * 0.5);
+    const roi = Number((installCost / yearlySavings).toFixed(1));
+
+    aiAnalysis.financial_report = {
+        estimated_install_cost: installCost,
+        yearly_savings_rm: yearlySavings,
+        roi_years: roi
+    };
+
+    // 3. 🟢 ERU Core Asset Calculation (Inflation Protection + The Ultimate Logic of Distribution According to Work)
     
-    // 4. If the final quantity differs from the original quantity determined by AI, the cost will be deducted precisely proportionally
-    if (gridConfig.count !== rawAiCount) {
-        console.log(`⚠️ AI suggests ${rawAiCount} quantity of solar panel(s). For aesthetic reasons and due to physical/electricity cost constraints, the settings were automatically adjusted down to ${gridConfig.count} panel(s)`);
-        
-        // Use the final quantity / the original AI quantity
-        const ratio = gridConfig.count / rawAiCount;
-        
-        // Strictly synchronize cost reduction and electricity savings
-        aiAnalysis.financial_report.estimated_install_cost = Math.round(aiAnalysis.financial_report.estimated_install_cost * ratio);
-        aiAnalysis.financial_report.yearly_savings_rm = Math.round(aiAnalysis.financial_report.yearly_savings_rm * ratio);
-        aiAnalysis.technical_config.system_size_kw = Number((aiAnalysis.technical_config.system_size_kw * ratio).toFixed(1));
-    }
+    // Current electricity rate/ERU unit price (assuming it's currently RM 0.50. This value will increase as electricity rates rise in the future).
+    const ERU_PEG_RATE = 0.50; 
+    
+    // Theoretical total output of one solar panel over 10 years (1 kWh = 1 ERU)
+    const ERU_PER_PANEL_10YR = 5400; 
+    
+    // 💡 Your brilliant logic: For every board installed, the system provides a fixed initial credit of RM 300.
+    const FIAT_GRANT_PER_PANEL = 300; 
 
-    // 5. Overwrite as clean grid data
-    aiAnalysis.technical_config.panel_count = gridConfig.count;
-    aiAnalysis.technical_config.grid_layout = { rows: gridConfig.rows, columns: gridConfig.cols };
+    // Get the number of blocks calculated by the system
+    const panelCount = aiAnalysis.technical_config.panel_count;
 
-    console.log("✅ [Step 1] Success! Final Panel Count:", aiAnalysis.technical_config.panel_count);
+    // 1. Total Amount = Number of Plates × Output per Plate over 10 Years
+    const total_eru = panelCount * ERU_PER_PANEL_10YR; 
+    
+    // 2. Initial unlocked ERU = (Number of boards × RM reward per board) ÷ Current RM unit price of ERU
+    // This way, if ERU appreciates to RM 1.00, the amount of ERU you receive will automatically be halved! Perfectly fair!
+    const initial_eru = Math.floor((panelCount * FIAT_GRANT_PER_PANEL) / ERU_PEG_RATE);
+
+    aiAnalysis.asset_potential = {
+        total_eru_10yr: total_eru,
+        initial_grant_eru: initial_eru,
+        eru_peg_rate_rm: ERU_PEG_RATE,
+        total_fiat_value_10yr: total_eru * ERU_PEG_RATE
+    };
+
     return { success: true, analysis: aiAnalysis };
 
-  } catch (error) {
+} catch (error) {
     console.error("🔥 [Step 1] API Error:", error);
     console.log("⚠️ Triggering Smart Fallback Calculator...");
-    return { success: true, isFallback: true, analysis: getSmartFallbackData(solarData, userInputs) }; 
+    // 🟢 Reuse getSmartFallbackData and solarData
+    return { 
+        success: true, 
+        isFallback: true, 
+        analysis: getSmartFallbackData(solarData, userInputs) 
+    }; 
   }
 });
 
 // ================================================================
-// PART 3: Step 2 Simulation Page (Feasibility Check)
+// PART 3: AI Chart Explainer (Simulate Mode)
 // ================================================================
-
-export const checkFeasibility = onCall({ cors: true, timeoutSeconds: 60 }, async (request) => {
+export const explainSimulation = onCall({ cors: true, timeoutSeconds: 60 }, async (request) => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new HttpsError('failed-precondition', 'Missing API Key');
 
-  const { originalCount, currentCount, rows, cols, rotation } = request.data;
+  const { year, traditionalValue, heliosValue, eruBalance, hasCrisis, concern, crisisYear } = request.data;
   
   const genAI = new GoogleGenerativeAI(apiKey);
-  
   const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
   const prompt = `
-    Role: Senior Solar Structural Engineer.
-    Task: Evaluate user changes to a solar array layout in a simulation.
+    Role: You are Helios AI, a financial data analyst.
+    Task: Explain the current state of the user's solar investment simulation in simple, engaging terms.
     
-    Original Safe Plan: ${originalCount} panels.
-    User's New Plan: ${currentCount} panels (${rows}x${cols} grid).
-    Rotation: ${rotation} degrees.
+    Current Data:
+    - Year: ${year}
+    - Traditional Solar Value: RM ${traditionalValue}
+    - Helios ERU Asset Value: RM ${heliosValue}
+    - ERU Balance: ${eruBalance} ERU
+    - Did a crisis happen?: ${hasCrisis ? `Yes, "${concern}" at Year ${crisisYear}` : "No, normal operation."}
 
     Rules:
-    1. >150% original = WARN (Structural load risk).
-    2. <80% original = SUGGEST (Underutilized).
-    3. Else = APPROVE (Optimal).
-    
-    Output: A single short sentence starting with "Engineer Analysis:".
+    1. Output exactly 2 or 3 short sentences.
+    2. Explain WHAT the numbers mean right now. (e.g., "You are currently losing money on traditional solar because...")
+    3. Highlight WHY Helios is performing better (mention the ERU balance liquid value).
+    4. Tone: Professional, clear, and reassuring. No markdown, just plain text.
   `;
 
   try {
     const result = await model.generateContent(prompt);
-    return { success: true, message: result.response.text().replace("Engineer Analysis:", "").trim() };
+    return { success: true, message: result.response.text().trim() };
   } catch (error) {
-    console.error("🔥 [Step 2] Error:", error);
-    return { success: true, message: "Engineer is currently offline. Layout appears structurally valid." };
+    console.error("🔥 [Explainer] Error:", error);
+    return { success: true, message: `At Year ${year}, traditional solar is valued at RM ${traditionalValue}, while your Helios ERU assets provide a secure value of RM ${heliosValue}.` };
   }
 });
 
@@ -283,59 +251,59 @@ export const checkFeasibility = onCall({ cors: true, timeoutSeconds: 60 }, async
 // This function will automatically calculate data when the AI ​​crashes, instead of displaying Offline.
 
 function getSmartFallbackData(solarData: any, userInputs: any) {
-    
-    // 1. Simultaneously assess [electricity cost requirements], [budgetary capacity], and [physical limits].
-    const panelsForBill = Math.ceil(userInputs.bill / 25); // Assuming a saving of RM25 per board per month
-    const panelsForBudget = Math.floor(userInputs.budget / 1500); // Assuming 1 board + installation RM1500
-    const hardMaxPanels = userInputs.roofConstraint?.maxPanels || 20;
+    const panelsForBill = Math.ceil(userInputs.bill / 25);
+    const panelsForBudget = Math.floor(userInputs.budget / 1500);
+    const hardMaxPanels = solarData?.panels || userInputs.roofConstraint?.maxPanels || 20;
 
-    // Take the minimum value of these three factors! Never waste the user's budget.
     let targetPanels = Math.min(panelsForBill, panelsForBudget, hardMaxPanels);
-    if (targetPanels < 4) targetPanels = 4; // The system recommends a minimum of 4 pieces.
+    if (targetPanels < 4) targetPanels = 4;
 
-    // 2. Convert to perfect mesh
     const gridConfig = formatToPerfectGrid(targetPanels);
     const finalPanels = gridConfig.count;
 
-    // 3. Financial calculations
     const systemSizeKw = finalPanels * 0.45; 
     const installCost = Math.round(systemSizeKw * 4000); 
     const yearlySavings = Math.round(systemSizeKw * 1400 * 0.5); 
     const roi = (installCost / yearlySavings).toFixed(1);
 
-    // 4. Return structured data
+    // 🟢 Fallback should also be counted towards ERU
+    const ERU_PEG_RATE = 0.50; // Anchored to actual electricity cost RM 0.50 / ERU
+    const ERU_PER_PANEL_10YR = 5400; // Total production of 1 solar panel over 10 years (1 kWh = 1 ERU)
+    const FIAT_GRANT_PER_PANEL = 300; // For each board installed, you will receive a reward of RM 300 worth of ERU.
+
+    // Total Amount = Final Panel Quantity × 10-Year Production Per Panel
+    const total_eru = finalPanels * ERU_PER_PANEL_10YR; 
+    
+    // Initial unlock = (Number of panels × RM reward per panel) ÷ Current RM unit price of ERU
+    const initial_eru = Math.floor((finalPanels * FIAT_GRANT_PER_PANEL) / ERU_PEG_RATE);
+
     return {
-        internal_thought_process: "Connection unstable. Calculating optimal setup based on local irradiance data and user bill constraints locally.",
+        internal_thought_process: "Fallback mode active.",
         ui_display: {
             suitability: "High Potential",
-            installation_method: "Optimized Rooftop Array (Calculated)",
-            reasons: [
-                "Your roof area supports excellent solar generation.",
-                `Based on RM ${userInputs.bill} bill, this system maximizes ROI.`,
-                "Standard mounting is suitable for your location."
-            ]
+            installation_method: "Optimized Rooftop Array",
+            reasons: ["Based on local irradiance data."]
         },
         financial_report: { 
             estimated_install_cost: installCost, 
             yearly_savings_rm: yearlySavings, 
-            roi_years: Number(roi), 
-            breakeven_year: Math.ceil(Number(roi)) 
+            roi_years: Number(roi)
+        },
+        // 🟢 Add Fallback Asset Data
+        asset_potential: {
+            total_eru_10yr: total_eru,
+            initial_grant_eru: initial_eru,
+            eru_peg_rate_rm: 0.50,
+            total_fiat_value_10yr: total_eru * ERU_PEG_RATE
         },
         technical_config: { 
             panel_count: finalPanels, 
-            placement: "rooftop", 
+            placement: "ROOFTOP", 
             system_size_kw: Number(systemSizeKw.toFixed(1)), 
-            grid_layout: {
-                rows: gridConfig.rows, 
-                columns: gridConfig.cols 
-            }, 
+            grid_layout: { rows: gridConfig.rows, columns: gridConfig.cols }, 
             orientation: "PORTRAIT", 
             panel_color: "BLACK" 
         },
-        next_steps: [
-            "Request Official Quote", 
-            "Schedule Site Visit",
-            "Apply for NEM 3.0"
-        ]
+        next_steps: ["Activate Asset"]
     };
 }

@@ -50,4 +50,4 @@ export const createSolarProject = onCall(async (request) => {
 });
 
 // Export Gemini AI analysis function
-export { analyzeWithGemini, checkFeasibility } from "./gemini";
+export { analyzeWithGemini, explainSimulation } from "./gemini";

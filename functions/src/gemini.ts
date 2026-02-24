@@ -42,7 +42,7 @@ const analysisSchema = {
       required: ["suitability", "installation_method", "reasons"]
     },
 
-    // 3. 🟢 Traditional financial statements (physical costs shown to the judges)
+    // 3. Traditional financial statements (physical costs shown to the judges)
     financial_report: {
       type: SchemaType.OBJECT,
       properties: {
@@ -53,7 +53,7 @@ const analysisSchema = {
       required: ["estimated_install_cost", "yearly_savings_rm", "roi_years"]
     },
 
-    // 4. 🟢 ERU Asset Potential Model (Your Core Innovation)
+    // 4. ERU Asset Potential Model (Your Core Innovation)
     asset_potential: {
       type: SchemaType.OBJECT,
       properties: {
@@ -100,7 +100,7 @@ export const analyzeWithGemini = onCall({ cors: true, timeoutSeconds: 120 }, asy
   const maxPanels = userInputs.roofConstraint?.maxPanels || 50;
   const userRawVoice = userInputs.specialRequirements || "No special requests.";
   
-  // 🟢 A minimalist Prompt: Focused on hardware evaluation, no longer offering lifestyle advice.
+  // A minimalist Prompt: Focused on hardware evaluation, no longer offering lifestyle advice.
   const prompt = `
     Role: You are Helios, a Solar Asset Evaluator.
     
@@ -132,7 +132,7 @@ export const analyzeWithGemini = onCall({ cors: true, timeoutSeconds: 120 }, asy
     const aiAnalysis = JSON.parse(text);
 
     // =================================================================
-    // 🟢 Backend forced correction & ERU asset calculation
+    // Backend forced correction & ERU asset calculation
     // =================================================================
     const placement = aiAnalysis.technical_config.placement?.toUpperCase();
 
@@ -163,7 +163,7 @@ export const analyzeWithGemini = onCall({ cors: true, timeoutSeconds: 120 }, asy
         roi_years: roi
     };
 
-    // 3. 🟢 ERU Core Asset Calculation (Inflation Protection + The Ultimate Logic of Distribution According to Work)
+    // 3. ERU Core Asset Calculation (Inflation Protection + The Ultimate Logic of Distribution According to Work)
     
     // Current electricity rate/ERU unit price (assuming it's currently RM 0.50. This value will increase as electricity rates rise in the future).
     const ERU_PEG_RATE = 0.50; 
@@ -244,9 +244,96 @@ export const explainSimulation = onCall({ cors: true, timeoutSeconds: 60 }, asyn
   }
 });
 
+// ================================================================
+// PART 4: AI Financial Oracle (Life Event Strategy Center)
+// ================================================================
+export const analyzeScenario = onCall({ cors: true, timeoutSeconds: 60 }, async (request) => {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new HttpsError('failed-precondition', 'Missing API Key');
+
+  const { userInput, baseProduction, baseConsumption, walletCash, unlockedEru, lockedEru, eruRate } = request.data;
+  
+  const genAI = new GoogleGenerativeAI(apiKey);
+  
+  // Intelligent Agent Schema: Added ui_action, allowing AI to control the front-end rendering of buttons
+  const scenarioSchema = {
+    type: SchemaType.OBJECT,
+    properties: {
+      kwh_change: { type: SchemaType.NUMBER, description: "Monthly kWh change." },
+      financial_impact_rm: { type: SchemaType.NUMBER, description: "Annual financial impact in RM." },
+      advisor_message: { type: SchemaType.STRING, description: "Max 2 short sentences! Warm, empathetic, and helpful." },
+      ui_action: {
+        type: SchemaType.OBJECT,
+        properties: {
+           type: { type: SchemaType.STRING, description: "'BUY', 'LIQUIDATE', or 'HOLD'" },
+           amount: { type: SchemaType.NUMBER, description: "Suggested ERU amount to trade. 0 if HOLD." },
+           button_label: { type: SchemaType.STRING, description: "Actionable text, e.g., 'Liquidate 5,000 ERU' or 'Buy 1,000 ERU'" }
+        },
+        required: ["type", "amount", "button_label"]
+      }
+    },
+    required: ["kwh_change", "financial_impact_rm", "advisor_message", "ui_action"]
+  };
+
+  const model = genAI.getGenerativeModel({ 
+      model: "gemini-2.5-flash",
+      generationConfig: { responseMimeType: "application/json", responseSchema: scenarioSchema as any }
+  });
+
+const prompt = `
+    Role: You are Helios, a warm, empathetic Web3 Solar Assistant.
+    
+    User Portfolio: 
+    - Monthly Production: ${baseProduction} kWh
+    - Monthly Consumption: ${baseConsumption} kWh
+    - Locked ERU (Future Yield): ${lockedEru} ERU
+    - Fiat Cash: RM ${walletCash} 
+    - Liquid ERU: ${unlockedEru} 
+    - Peg Rate: RM ${eruRate}
+
+    User Event: "${userInput}"
+
+    Rules:
+    1. Calculate monthly kWh change & annual financial impact based on their production and consumption.
+    2. Write an empathetic, extremely concise message (MAX 2 SENTENCES) addressing their event.
+    3. Generate a UI action for them to execute based on their exact balance. If they need cash, suggest LIQUIDATE. If they increase power usage, suggest BUY.
+  `;
+
+  try {
+    const result = await model.generateContent(prompt);
+    let cleanText = result.response.text().replace(/```json/gi, "").replace(/```/g, "").trim();
+    return { success: true, data: JSON.parse(cleanText) };
+  } catch (error) {
+    console.error("🔥 [Robo-Advisor] ERROR:", error);
+    
+    // Intelligent backup ensures lightning-fast response.
+    let fallbackData = {
+        kwh_change: 0, financial_impact_rm: 0,
+        advisor_message: "Network is slightly delayed, but your assets are secure. Please try again.",
+        ui_action: { type: "HOLD", amount: 0, button_label: "Dismiss" }
+    };
+
+    const inputLower = userInput.toLowerCase();
+    if (inputLower.includes("ev") || inputLower.includes("car")) {
+        fallbackData = {
+            kwh_change: 350, financial_impact_rm: -2100,
+            advisor_message: "Buying an EV is great! It will consume your solar surplus, so I suggest buying some ERU now at the current cheap rate to offset future charging costs.",
+            ui_action: { type: "BUY", amount: 2000, button_label: "Buy 2,000 ERU (Hedge)" }
+        };
+    } else if (inputLower.includes("cash") || inputLower.includes("lost") || inputLower.includes("job")) {
+         fallbackData = {
+            kwh_change: 0, financial_impact_rm: 0,
+            advisor_message: "I'm so sorry to hear that. Don't worry, your solar system has been building wealth for you. You can instantly cash out your ERU to handle this emergency.",
+            ui_action: { type: "LIQUIDATE", amount: Math.min(5000, unlockedEru), button_label: "Liquidate for Emergency Cash" }
+        };
+    }
+
+    return { success: true, data: fallbackData };
+  }
+});
 
 // ================================================================
-// PART 4: Smart Fallback
+// PART 5: Smart Fallback
 // ================================================================
 // This function will automatically calculate data when the AI ​​crashes, instead of displaying Offline.
 

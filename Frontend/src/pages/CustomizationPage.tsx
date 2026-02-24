@@ -18,12 +18,17 @@ import {
   TrendingUp,
   Unlock,
   Activity,
-  RefreshCw
+  RefreshCw,
+  ChevronUp, 
+  ChevronDown, 
+  GripHorizontal
 } from "lucide-react";
 
 import { functions } from "../firebase";
 import { httpsCallable } from "firebase/functions";
 import { useNavigate } from "react-router-dom";
+import GlobalStepper from '../components/GlobalStepper';
+import Draggable from 'react-draggable';
 
 // --- Types Definition ---
 // To avoid red lines, we will force conversion to any when using it, but retain the definition for reference
@@ -36,7 +41,6 @@ interface AIReport {
       installation_method: string;
       reasons: string[];
     };
-    // 🟢 新增这部分
     asset_potential?: {
       total_eru_10yr: number;
       initial_grant_eru: number;
@@ -77,6 +81,8 @@ const LIBRARIES: ("places" | "geometry" | "drawing" | "visualization")[] = [
 ];
 
 const CustomizationPage = () => {
+  const [isCollapsed, setIsCollapsed] = useState(false);
+
   const [bill, setBill] = useState<number>(300);
   const [budget, setBudget] = useState<number>(15000);
   const [loading, setLoading] = useState(false);
@@ -117,6 +123,8 @@ const CustomizationPage = () => {
 
   const mapRef = useRef<google.maps.Map | null>(null);
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+
+  const draggableRef = useRef<HTMLDivElement>(null);
 
   const onLoad = useCallback((map: google.maps.Map) => {
     mapRef.current = map;
@@ -397,140 +405,13 @@ const CustomizationPage = () => {
     );
 
   return (
-    <div className="relative h-screen w-full bg-black overflow-hidden flex flex-col md:flex-row">
-      {/* --- Left Panel --- */}
-      <div className="absolute top-0 left-0 z-10 w-full md:w-[420px] h-auto md:h-screen bg-black/85 backdrop-blur-xl border-r border-white/10 p-8 flex flex-col overflow-y-auto">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold flex items-center gap-2 mb-1 text-white">
-            <CloudSun className="text-blue-400" /> Helios AI
-          </h1>
-          <p className="text-gray-400 text-sm">Step 1: Locate & Configure</p>
-        </div>
+    // The outermost layer is still a full-screen anti-scrolling layer.
+    <div className="relative h-screen w-full bg-black overflow-hidden font-sans flex flex-col">
 
-        {/* Address Input */}
-        <div className="mb-6">
-          <label className="text-sm text-gray-300 font-medium flex gap-1 items-center mb-2">
-            <MapPin size={16} className="text-red-400" /> Find Your Home
-          </label>
-          <Autocomplete
-            onLoad={onLoadAutocomplete}
-            onPlaceChanged={onPlaceChanged}
-          >
-            <input
-              type="text"
-              placeholder="Search Singapore address..."
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              className="w-full bg-zinc-800 text-white border border-gray-600 rounded-lg p-3 outline-none focus:border-blue-500 transition-all"
-            />
-          </Autocomplete>
-        </div>
-
-        {/* Sliders */}
-        <div className="mb-6 space-y-4">
-          <label className="text-sm text-gray-300 font-medium flex justify-between">
-            <span>Avg. Monthly Bill</span>
-            <span className="text-blue-400">RM {bill}</span>
-          </label>
-          <input
-            type="range"
-            min="50"
-            max="2000"
-            step="10"
-            value={bill}
-            onChange={(e) => setBill(Number(e.target.value))}
-            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-          />
-        </div>
-
-        <div className="mb-6 space-y-4">
-          <label className="text-sm text-gray-300 font-medium flex justify-between">
-            <span>Est. Budget</span>
-            <span className="text-green-400">RM {budget.toLocaleString()}</span>
-          </label>
-          <input
-            type="range"
-            min="5000"
-            max="100000"
-            step="1000"
-            value={budget}
-            onChange={(e) => setBudget(Number(e.target.value))}
-            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-green-500"
-          />
-        </div>
-
-        {/* Lifecycle Concerns (addressing key pain points) */}
-        <div className="mb-6">
-          <label className="text-sm text-gray-300 font-medium flex gap-1 items-center mb-3">
-            <Activity size={16} className="text-purple-400" />
-            Future Outlook (The "Blind Gamble")
-          </label>
-          
-          <div className="flex flex-col gap-2">
-            {futureConcerns.map((concern) => (
-              <button
-                key={concern.id}
-                onClick={() => setSelectedConcern(concern.id)}
-                className={`text-left px-4 py-3 rounded-lg text-sm transition-all border ${
-                  selectedConcern === concern.id
-                    ? "bg-purple-600/20 border-purple-500 text-purple-200 shadow-[0_0_10px_rgba(168,85,247,0.2)]"
-                    : "bg-zinc-800/50 border-gray-700 text-gray-400 hover:bg-zinc-700 hover:border-gray-500"
-                }`}
-              >
-                {concern.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Property Types and Supplementary Information (Reduced) */}
-        <div className="mb-6">
-          <label className="text-sm text-gray-300 font-medium flex gap-1 items-center mb-2">
-            <MessageSquare size={16} className="text-blue-400" />
-            Property Type & Notes
-          </label>
-          <textarea
-            value={specialRequirements}
-            onChange={(e) => setSpecialRequirements(e.target.value)}
-            placeholder="e.g., 'I live in a Condo', 'No roof access'..."
-            className="w-full bg-zinc-800/80 text-white border border-gray-700 rounded-lg p-3 outline-none focus:border-blue-500 min-h-[80px] text-sm transition-all"
-          />
-        </div>
-
-        {/* Status Messages */}
-        {solarData && solarData.isMock && (
-          <div className="p-3 bg-yellow-900/20 text-yellow-200 text-xs mb-4 rounded border border-yellow-500/20 flex gap-2 items-center">
-            <span>
-              ⚠️ Region not fully scanned. Using estimated data for AI analysis.
-            </span>
-          </div>
-        )}
-
-        {/* Action Button */}
-        <div className="mt-auto pt-6">
-          <button
-            onClick={generateAIReport}
-            disabled={loading || aiLoading || !solarData}
-            className="w-full py-4 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-bold rounded-lg shadow-lg hover:from-blue-500 hover:to-blue-600 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:grayscale"
-          >
-            {loading || aiLoading ? (
-              <Loader2 className="animate-spin" />
-            ) : (
-              <Sparkles size={18} className="fill-white/20" />
-            )}
-            {loading
-              ? "Scanning Roof..."
-              : aiLoading
-              ? "AI Analyzing Constraints..."
-              : solarData
-              ? "Generate AI Strategy"
-              : "Select Location First"}
-          </button>
-        </div>
-      </div>
-
-      {/* --- Right Panel: Map --- */}
-      <div className="flex-1 h-screen relative">
+      {/* ========================================================= */}
+      {/* 🌍 Full-screen underlying map                             */}
+      {/* ========================================================= */}
+      <div className="absolute inset-0 z-0">
         <GoogleMap
           mapContainerStyle={{ width: "100%", height: "100%" }}
           center={CONFIG.DEFAULT_CENTER}
@@ -541,12 +422,156 @@ const CustomizationPage = () => {
           options={{
             mapTypeId: "hybrid",
             disableDefaultUI: true,
-            zoomControl: true,
+            zoomControl: false,
             tilt: 0,
           }}
         >
           {selectedLocation && <Marker position={selectedLocation} />}
         </GoogleMap>
+      </div>
+
+      {/* ========================================================= */}
+      {/* 🌟 interaction layer */}
+      {/* ========================================================= */}
+      <div className="absolute inset-0 z-10 pointer-events-none p-6">
+        
+        {/* Top-fixed Stepper */}
+        <div className="pointer-events-auto relative z-50">
+          <GlobalStepper currentStep={1} onBack={() => navigate("/")} />
+        </div>
+
+        {/* ============================================================== */}
+        {/* 🚀 Draggable, foldable, fully-fledged floating control console */}
+        {/* ============================================================== */}
+          <Draggable nodeRef={draggableRef} handle=".drag-handle" bounds="parent">
+          <div 
+            ref={draggableRef} // Must add this ref, otherwise React will crash and display a black screen!
+            className={`pointer-events-auto absolute top-24 left-6 w-[90%] md:w-[420px] bg-black/70 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex flex-col transition-all duration-300 z-40 overflow-hidden`}
+            style={{ maxHeight: isCollapsed ? '80px' : 'calc(100vh - 120px)' }}
+          >
+            
+            {/* 1. Drag and drop handles & title bar (Header) */}
+            <div className="drag-handle flex items-center justify-between p-5 border-b border-white/5 cursor-move bg-white/5 hover:bg-white/10 transition-colors shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="bg-cyan-500/20 p-2 rounded-xl border border-cyan-500/30">
+                  <CloudSun className="text-cyan-400" size={24} />
+                </div>
+                <div>
+                  <h1 className="text-lg font-bold text-white leading-tight tracking-wide drop-shadow-lg">Helios AI</h1>
+                  <p className="text-cyan-400 text-[9px] font-bold tracking-[0.2em] uppercase mt-0.5">Property Parameters</p>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                {/* Drag and drop the icon */}
+                <GripHorizontal size={16} className="text-gray-500 mr-2" />
+                {/* Collapse control button */}
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setIsCollapsed(!isCollapsed); }} 
+                  className="p-1.5 hover:bg-white/10 rounded-full text-gray-400 transition-colors"
+                >
+                  {isCollapsed ? <ChevronDown size={20}/> : <ChevronUp size={20}/>}
+                </button>
+              </div>
+            </div>
+
+            {/* 2. Form content area (rendered only when not collapsed) */}
+            {!isCollapsed && (
+              <div className="flex-1 flex flex-col overflow-hidden">
+                {/* Scrolling area (removed the exaggerated capitalization and wide spacing, restoring a clean SaaS font layout) */}
+                <div className="flex-1 overflow-y-auto p-6 md:p-8 scrollbar-none">
+                  
+                  {/* Address Input */}
+                  <div className="mb-6">
+                    <label className="text-sm text-gray-300 font-medium flex gap-2 items-center mb-2">
+                      <MapPin size={16} className="text-red-400" /> Find Your Home
+                    </label>
+                    <Autocomplete onLoad={onLoadAutocomplete} onPlaceChanged={onPlaceChanged}>
+                      <input
+                        type="text"
+                        placeholder="Search Singapore address..."
+                        value={address}
+                        onChange={(e) => setAddress(e.target.value)}
+                        className="w-full bg-black/40 text-white border border-gray-600 rounded-lg p-3 outline-none focus:border-cyan-500 transition-all placeholder:text-gray-500"
+                      />
+                    </Autocomplete>
+                  </div>
+
+                  {/* Sliders */}
+                  <div className="mb-6 space-y-4">
+                    <label className="text-sm text-gray-300 font-medium flex justify-between items-center">
+                      <span>Avg. Monthly Bill</span>
+                      <span className="text-cyan-400 font-bold">RM {bill}</span>
+                    </label>
+                    <input
+                      type="range" min="50" max="2000" step="10" value={bill} onChange={(e) => setBill(Number(e.target.value))}
+                      className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                    />
+                  </div>
+
+                  <div className="mb-6 space-y-4">
+                    <label className="text-sm text-gray-300 font-medium flex justify-between items-center">
+                      <span>Est. Budget</span>
+                      <span className="text-green-400 font-bold">RM {budget.toLocaleString()}</span>
+                    </label>
+                    <input
+                      type="range" min="5000" max="100000" step="1000" value={budget} onChange={(e) => setBudget(Number(e.target.value))}
+                      className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-green-500"
+                    />
+                  </div>
+
+                  {/* Future Outlook */}
+                  <div className="mb-6">
+                    <label className="text-sm text-gray-300 font-medium flex gap-2 items-center mb-3">
+                      <Activity size={16} className="text-purple-400" /> Future Outlook (The "Blind Gamble")
+                    </label>
+                    <div className="flex flex-col gap-2">
+                      {futureConcerns.map((concern) => (
+                        <button
+                          key={concern.id}
+                          onClick={() => setSelectedConcern(concern.id)}
+                          className={`text-left px-4 py-3 rounded-lg text-sm transition-all border ${
+                            selectedConcern === concern.id
+                              ? "bg-purple-600/20 border-purple-500 text-purple-200 shadow-[0_0_10px_rgba(168,85,247,0.2)]"
+                              : "bg-zinc-800/50 border-gray-700 text-gray-400 hover:bg-zinc-700 hover:border-gray-500"
+                          }`}
+                        >
+                          {concern.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Property Notes */}
+                  <div className="mb-4">
+                    <label className="text-sm text-gray-300 font-medium flex gap-2 items-center mb-2">
+                      <MessageSquare size={16} className="text-blue-400" /> Property Type & Notes
+                    </label>
+                    <textarea
+                      value={specialRequirements}
+                      onChange={(e) => setSpecialRequirements(e.target.value)}
+                      placeholder="e.g., 'I live in a Condo', 'No roof access'..."
+                      className="w-full bg-zinc-800/80 text-white border border-gray-700 rounded-lg p-3 outline-none focus:border-blue-500 min-h-[80px] text-sm transition-all resize-none placeholder:text-gray-500"
+                    />
+                  </div>
+                </div>
+
+                {/* The sticky bottom button area (always visible, does not scroll with the page) */}
+                <div className="p-5 border-t border-white/5 bg-black/40 shrink-0">
+                  <button
+                    onClick={generateAIReport}
+                    disabled={loading || aiLoading || !solarData}
+                    className="w-full py-4 bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-bold rounded-xl shadow-[0_0_20px_rgba(6,182,212,0.3)] hover:scale-[1.02] transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:grayscale disabled:hover:scale-100 uppercase tracking-widest text-xs"
+                  >
+                    {loading || aiLoading ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}
+                    {loading ? "Scanning Area..." : aiLoading ? "AI Processing..." : solarData ? "Generate AI Strategy" : "Select Location"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </Draggable>
+
       </div>
 
       {/* --- AI REPORT MODAL --- */}
@@ -758,7 +783,7 @@ const CustomizationPage = () => {
           </div>
         </div>
       )}
-    </div>
+      </div>
   );
 };
 

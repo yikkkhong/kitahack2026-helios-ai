@@ -1,6 +1,6 @@
-# Solar Lifecycle Management System ☀️
+# Helios Protocol - The Decentralized Solar FinTech Platform ☀️
 
-Helios AI transforms rooftop solar from a static depreciating hardware into a liquid, appreciating Real World Asset (RWA)
+**Helios** transforms rooftop solar from a static, depreciating hardware expense into a liquid, appreciating Real World Asset (RWA).
 
 ## 🌍 The Problem
 
@@ -32,70 +32,48 @@ Solar is no longer static infrastructure—it becomes an **adaptive financial in
 
 ## 🧠 System Architecture
 
-Helios AI operates in **three core stages**:
+Helios operates via three core protocols:
 
-### Step 1: Asset Creation (Customization)
+### Step 1: AI Financial Oracle (Risk Assessment)
 
-Users establish their "Mining Rig" capacity.
-Instead of complex lifestyle surveys, users select their physical hardware setup to determine their Total Token Cap (Mining Potential):
+Instead of talking to salesmen, users input their location and budget. Our Gemini 2.5 Engine cross-references the data with the Google Solar API to calculate the "Fully Installed Blended Cost" and strictly validates ROI viability. If a budget is too low to yield economic sense, the Oracle recommends purchasing liquid ERUs instead of physical hardware.
 
-- Roof Mount (High Cap): For landed properties, maximizing asset potential
-- Balcony/Plug & Play (Low Cap): For apartments, lowering the entry barrier
-- System Output: Calculates the Total Token Allocation and Base Monthly Yield
+### Step 2: 3D Digital Twin (Verification)
 
-### Step 2: Simulation Engine
+Before a single panel is mounted, users explore a 1:1 immersive 3D spatial blueprint of their future asset. This is rendered in real-time using Google Photorealistic 3D Tiles and CesiumJS, allowing users to verify layout feasibility (View, Edit, Simulate) and build ultimate trust before dispatching contractors.
 
-Interactive simulation allows users to:
-- Adjust future timelines via slider
-- Simulate demand reduction scenarios
-- Model ROI volatility
-- View Solar Portfolio valuation changes
-- Compare system configurations
+### Step 3: ERU Assetization Ledger (DeFi Engine)
 
-This engine dynamically recalculates projected returns using:
-- Solar irradiance data
-- Energy pricing assumptions
-- Household demand models
-- Risk-adjusted modifiers
-
-### Step 3: Implementation Logic
-
-Users explore:
-- System reconfiguration possibilities
-- Panel removal or scaling
-- Conceptual asset transfer scenarios
-- Subscription model adjustments
-
-The platform demonstrates how solar systems adapt under real-life changes.
+The core Web3/FinTech dashboard. Your hardware becomes a mining rig, minting Energy Revenue Units (ERUs) for every kWh generated. Users can consult the Gemini AI Robo-Advisor for future uncertainties (e.g., "I am buying an EV next month"). The AI instantly recalculates their 12-month trajectory and provides actionable hedging strategies, securely recorded on our Firebase Immutable Ledger.
 
 ---
 
 ## 🚀 Key Differentiator
 
-Helios AI is **not just a solar calculator**—it's a Solar Lifecycle Management System designed to:
+Helios is **not just a solar calculator or a simulation tool**—it is a Decentralized FinTech Protocol designed to:
 
-- Reduce adoption anxiety
-- Increase long-term flexibility
-- Introduce liquidity thinking into residential solar
+- **Eliminate the "Sunk Cost" fear**: Transitioning physical hardware into liquid assets.
+- **Provide AI-Driven Hedging**: Gemini acts as a personal energy hedge fund manager.
+- **Democratize the Grid**: Allowing anyone, even those without roofs, to hold ERUs.
 
-**We shift the question from:**
-> "Should I install solar?"
+**We shift the paradigm from:**
 
-**to:**
-> "How should I manage solar as an adaptive asset?"
+> "Should I install solar panels?"
+> **to:**
+> "How do I manage my solar asset portfolio?"
 
 ---
 
 ## 🛠 Tech Stack
 
-| Component | Technology |
-|-----------|-----------|
-| **Frontend** | React + TypeScript, Vite, Tailwind CSS |
-| **Backend** | Firebase Cloud Functions, Firestore |
+| Component           | Technology                                       |
+| ------------------- | ------------------------------------------------ |
+| **Frontend**        | React + TypeScript, Vite, Tailwind CSS           |
+| **Backend**         | Firebase Cloud Functions, Firestore              |
 | **3D & Geospatial** | CesiumJS, Google Maps API, Google Photorealistic |
-| **Solar Data** | Google Solar API |
-| **AI Engine** | Gemini API |
-| **Hosting** | Firebase |
+| **Solar Data**      | Google Solar API                                 |
+| **AI Engine**       | Gemini API                                       |
+| **Hosting**         | Firebase                                         |
 
 ---
 
@@ -117,21 +95,24 @@ Turning solar into a manageable long-term decision rather than a fixed gamble.
 
 Before getting started, ensure you have:
 
-- **Node.js** (v16 or higher)
+- **Node.js** (v18 or higher recommended)
 - **npm** or **yarn** package manager
 - **Firebase CLI** — install with: `npm install -g firebase-tools`
 - **Google Cloud account** with the following APIs enabled:
   - Solar API
+  - Map Tiles API
   - Maps JavaScript API
   - Places API
   - Geocoding API
-  - Gemini API
+  - Gemini API (via Google AI Studio)
 
 ---
 
 ## Getting Started
 
-### 1. Install Dependencies
+First, clone the repository and install the required packages for both the frontend and backend
+
+### 1. Clone & Install Dependencies
 
 ```bash
 # Install frontend dependencies
@@ -145,24 +126,31 @@ npm install
 
 ### 2. Set Up Firebase & Environment Variables
 
-Create a `.env` file in the `functions/` directory:
+Create a `.env` file in the `functions/` directory (for backend/Firebase functions) and/or the Frontend/ directory (if your React app needs direct API access via Vite).
 
 ```env
-GEMINI_API_KEY=your_gemini_api_key
-GOOGLE_MAPS_API_KEY=your_maps_api_key
+# For Backend (functions/.env)
+GEMINI_API_KEY=your_gemini_api_key_here
+GOOGLE_MAPS_API_KEY=your_maps_api_key_here
+
+# For Frontend (Frontend/.env)
+VITE_GOOGLE_MAPS_API_KEY=your_maps_api_key_here
+VITE_FIREBASE_CONFIG="..."
 ```
 
 ### 3. Run Development Environment
 
-Open two terminal windows:
+Open two terminal windows to run the emulators and the frontend server simultaneously:
 
-**Terminal 1 — Firebase Emulators:**
+**Terminal 1 — Start Firebase Emulators:**
+
 ```bash
 npm run build --prefix functions
 firebase emulators:start
 ```
 
-**Terminal 2 — Frontend Dev Server:**
+**Terminal 2 — Start Frontend Dev Server:**
+
 ```bash
 cd Frontend
 npm run dev
@@ -172,31 +160,33 @@ The app will be available at `http://localhost:5173`
 
 ---
 
-## API Integration
+## API Integration Map
 
-| API | Purpose |
-|-----|---------|
-| **Solar API** | Calculates solar potential, irradiance, and panel generation for any location |
-| **Google Maps API** | Provides location context and routing |
-| **Places API** | Geocoding and address autocomplete for location search |
-| **Geocoding API** | Converts addresses to coordinates and vice versa |
-| **Gemini API** | Generates AI-powered solar recommendations and analysis |
+| API                 | Purpose within Helios Protocol                                                                          |
+| ------------------- | ------------------------------------------------------------------------------------------------------- |
+| **Solar API**       | Calculates solar potential, irradiance, and panel generation for any location                           |
+| **Google Maps API** | Provides the interactive map interface and geospatial context                                           |
+| **Places API**      | Enables autocomplete functionality for users searching for their property addresses                     |
+| **Geocoding API**   | Converts user-inputted addresses into precise latitude/longitude coordinates                            |
+| **Gemini API**      | Powers the "Smart Liquidity Advisor," processing user events to generate AI-driven financial strategies |
 
 ---
 
 ## Building & Deployment
 
-### Deploy Backend Functions
+### Deploy Backend (Cloud Functions)
 
 ```bash
 firebase deploy --only functions
 ```
 
-### Build Frontend for Production
+### Build & Deploy Frontend (Firebase Hosting)
 
 ```bash
 cd Frontend
 npm run build
+cd ..
+firebase deploy --only hosting
 ```
 
 ### Deploy Full Application
@@ -208,39 +198,26 @@ firebase deploy
 ## Development Workflow
 
 - **Frontend Development** — Changes auto-reload via Vite's Hot Module Replacement (HMR)
-- **Backend Development** — Use Firebase emulator for local testing
-- **Database** — Access Firestore via emulator at `http://localhost:4000`
+- **Backend/Database** — Test Cloud Functions and Firestore locally using the Firebase Emulator Suite (usually accessible at http://localhost:4000).
 
 ---
 
 ## Common Issues & Troubleshooting
 
-| Issue | Solution |
-|-------|----------|
-| `CORS error when calling Google APIs` | Ensure your Google Cloud API keys have proper domain restrictions set |
-| `Firestore emulator not starting` | Run `firebase emulators:start` with `--inspect-functions` flag to debug |
-| `Cesium models not loading` | Verify that `public/models/` contains all required 3D model files |
+| Issue                                 | Solution                                                                |
+| ------------------------------------- | ----------------------------------------------------------------------- |
+| `CORS error when calling Google APIs` | Ensure your Google Cloud API keys have proper domain restrictions set   |
+| `Firestore emulator not starting`     | Run `firebase emulators:start` with `--inspect-functions` flag to debug |
+| `Cesium models not loading`           | Verify that `public/models/` contains all required 3D model files       |
 
 ---
 
-## Contributing
+## Acknowledgments
 
-1. Create a feature branch: `git checkout -b feature/amazing-feature`
-2. Commit your changes: `git commit -m 'Add amazing feature'`
-3. Push to the branch: `git push origin feature/amazing-feature`
-4. Open a pull request
+Special thanks to Ms. Noor Zuhaili Md Yasin (Lecturer, INTI International University) for the academic guidance and support throughout this project
 
 ---
 
 ## License
 
-This project is part of the **KITA Hackathon 2026** Initiative.
-
----
-
-## Support
-
-For issues, questions, or feedback:
-- Open an issue on GitHub
-- Review the [Firebase documentation](https://firebase.google.com/docs)
-- Check the [Google Solar API guide](https://developers.google.com/maps/documentation/solar)
+This project was developed for the KITA Hackathon 2026 Initiative.
